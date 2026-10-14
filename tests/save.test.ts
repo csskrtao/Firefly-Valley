@@ -37,6 +37,28 @@ describe('save data', () => {
     expect(s.quest.index).toBe(0);
   });
 
+  it('moves v2 fields onto the bigger map and fills in the new progression', () => {
+    const v2 = { version: 2, slot: 1, cls: 'rogue', day: 4, field: { '5,12': { watered: false, crop: 'radish', days: 2 } } };
+    const s = migrate(v2)!;
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.field).toEqual({ '6,13': { watered: false, crop: 'radish', days: 2 } });
+    expect(s.level).toBe(1);
+    expect(s.xp).toBe(0);
+    expect(s.weaponType).toBe('dagger');
+    expect(s.weaponTypes).toEqual(['dagger']);
+    expect(s.accessories).toEqual([]);
+    expect(s.buff).toBeNull();
+    // v3 存档的田地不再挪动
+    expect(migrate(JSON.parse(JSON.stringify(s)))!.field).toEqual(s.field);
+  });
+
+  it('drops weapon types and accessories that do not belong', () => {
+    const s = migrate({ version: 3, cls: 'mage', weaponType: 'axe', weaponTypes: ['axe', 'orb', 'nope'], accessories: ['copperRing', 'radish', 'clover', 'vampFang'] })!;
+    expect(s.weaponTypes).toEqual(['staff', 'orb']);
+    expect(s.weaponType).toBe('staff');
+    expect(s.accessories).toEqual(['copperRing', 'clover']);
+  });
+
   it('rejects garbage', () => {
     expect(migrate(null)).toBeNull();
     expect(migrate('hello')).toBeNull();
