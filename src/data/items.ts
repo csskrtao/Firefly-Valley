@@ -88,8 +88,9 @@ export const ITEMS = {
   bone: { name: '骨头', kind: 'material', desc: '矿工骷髅留下的。', color: '#e8e4d4', sell: 18 },
   cog: { name: '锈齿轮', kind: 'material', desc: '锈蚀傀儡身上的零件。', color: '#b0703a', sell: 25 },
   claw: { name: '钻地鼠爪', kind: 'material', desc: '能挖穿岩石的爪子。', color: '#d9d2c0', sell: 22 },
-  crown: { name: '王冠凝胶', kind: 'key', desc: '史莱姆王的王冠化成的凝胶。打造金器要用。', color: '#ffd34d' },
-  fang: { name: '掘地者之牙', kind: 'key', desc: '铁颚掘地者的獠牙。打造萤石武器要用。', color: '#c9d4e0' },
+  essence: { name: '萤尘', kind: 'material', desc: '分解装备得到的发光粉末。铁匠强化和提升品质要用。', color: '#b8f0ff' },
+  crown: { name: '王冠凝胶', kind: 'key', desc: '史莱姆王的王冠化成的凝胶。有了它，老岩才肯把装备升成金器。', color: '#ffd34d' },
+  fang: { name: '掘地者之牙', kind: 'key', desc: '铁颚掘地者的獠牙。有了它，老岩才肯把装备升成萤石器。', color: '#c9d4e0' },
   shovel: { name: '祖母的铲子', kind: 'key', desc: '祖母留下的旧铲子。对着地上闪光的地方按 E 就能挖宝。', color: '#9a8a78' },
   treasureMap: { name: '藏宝图', kind: 'key', desc: '画着埋宝地点的旧地图。在背包的收集册页能看到它指向哪里，走近了地上会出现红叉。', color: '#e8d4a0' },
   // 宝物（挖宝、藏宝图、隐藏宝箱，收集册会记下来）
@@ -102,7 +103,7 @@ export const ITEMS = {
   potion: { name: '治疗药水', kind: 'consumable', desc: '回复 60 生命。', color: '#ef5d5d', buy: 60, heal: 60 },
   bigPotion: { name: '高级药水', kind: 'consumable', desc: '回复 150 生命。', color: '#ff8fb3', buy: 160, heal: 150 },
   tonic: { name: '体力饮剂', kind: 'consumable', desc: '回复 60 体力。', color: '#86d65c', buy: 80, energy: 60 },
-  // 饰品（最多同时戴两件）
+  // 饰品（最多同时戴两件）。拿到时会变成一件普通品质的装备
   copperRing: { name: '铜戒指', kind: 'accessory', desc: '朴素的铜戒指。', color: '#e8894a', sell: 60, acc: { def: 1, hp: 10 } },
   powerCharm: { name: '力量护符', kind: 'accessory', desc: '握紧它，手上就有使不完的劲。', color: '#e8503a', sell: 120, acc: { atk: 0.1 } },
   mossCharm: { name: '苔藓护符', kind: 'accessory', desc: '湿润的苔藓，伤口好得更快。', color: '#6fd16b', sell: 100, acc: { regen: 0.5 } },

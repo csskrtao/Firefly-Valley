@@ -3,7 +3,9 @@ import { DAY_START, SEASON_DAYS } from '../src/core/constants';
 import { CLASS_IDS, CLASSES } from '../src/data/classes';
 import { NPC_IDS } from '../src/data/npcs';
 import { SAVE_VERSION, addItem, dayOfSeason, migrate, newSave, removeItem, seasonOf, yearOf } from '../src/state/save';
-import { maxHp } from '../src/systems/stats';
+import { levelAtk } from '../src/systems/level';
+import { equipped, equippedSlot, weaponOf } from '../src/systems/gear';
+import { attack, defense, maxHp } from '../src/systems/stats';
 import { clockText, dateText, nightAlpha } from '../src/systems/time';
 
 describe('save data', () => {
@@ -31,7 +33,7 @@ describe('save data', () => {
     const s = migrate(old)!;
     expect(s.version).toBe(SAVE_VERSION);
     expect(s.day).toBe(9);
-    expect(s.weapon).toEqual({ tier: 2, plus: 0 });
+    expect(weaponOf(s)).toMatchObject({ wt: 'staff', tier: 2, plus: 0, q: 0 });
     expect(s.npcs.smith).toEqual({ pts: 120, talkDay: 0, giftDay: 0, seenHearts: 0 });
     expect(s.npcs.vera.pts).toBe(0);
     expect(s.quest.index).toBe(0);
@@ -46,7 +48,7 @@ describe('save data', () => {
     expect(s.xp).toBe(0);
     expect(s.weaponType).toBe('dagger');
     expect(s.weaponTypes).toEqual(['dagger']);
-    expect(s.accessories).toEqual([]);
+    expect(s.gear.filter((g) => g.slot === 'acc')).toEqual([]);
     expect(s.buff).toBeNull();
     // v3 存档的田地不再挪动
     expect(migrate(JSON.parse(JSON.stringify(s)))!.field).toEqual(s.field);
@@ -56,7 +58,48 @@ describe('save data', () => {
     const s = migrate({ version: 3, cls: 'mage', weaponType: 'axe', weaponTypes: ['axe', 'orb', 'nope'], accessories: ['copperRing', 'radish', 'clover', 'vampFang'] })!;
     expect(s.weaponTypes).toEqual(['staff', 'orb']);
     expect(s.weaponType).toBe('staff');
-    expect(s.accessories).toEqual(['copperRing', 'clover']);
+    expect([s.equip.acc1, s.equip.acc2].map((id) => s.gear.find((g) => g.id === id)?.acc)).toEqual(['copperRing', 'clover']);
+  });
+
+  it('turns v3 tier gear into gear items with the same power', () => {
+    const v3 = {
+      version: 3, slot: 0, cls: 'warrior', level: 4,
+      weapon: { tier: 3, plus: 6 }, armor: { tier: 2, plus: 4 },
+      weaponType: 'axe', weaponTypes: ['sword', 'axe'],
+      accessories: ['powerCharm'], inv: { copper: 3, clover: 1, vampFang: 2 },
+    };
+    const s = migrate(v3)!;
+    expect(s.version).toBe(4);
+    expect('weapon' in s || 'armor' in s || 'accessories' in s).toBe(false);
+    expect(weaponOf(s)).toMatchObject({ wt: 'axe', tier: 3, plus: 6, q: 0 });
+    expect(s.weaponType).toBe('axe');
+    expect(s.gear.filter((g) => g.slot === 'weapon').map((g) => g.wt).sort()).toEqual(['axe', 'sword']);
+    expect(equipped(s, 'body')).toMatchObject({ tier: 2, plus: 4, q: 0 });
+    expect(equipped(s, 'acc1')?.acc).toBe('powerCharm');
+    expect(s.inv).toEqual({ copper: 3 });
+    expect(s.gear.filter((g) => g.slot === 'acc' && !equippedSlot(s, g.id)).map((g) => g.acc).sort()).toEqual(['clover', 'vampFang', 'vampFang']);
+    // 和老公式算出来的一样：武器 20 × (1 + 0.15 × 6) × 战斧 1.6 × 等级 × (1 + 力量护符 0.1)
+    const old = Math.round(20 * (1 + 0.15 * 6) * 1.6 * levelAtk(4) * 1.1);
+    expect(attack(s)).toBe(old);
+    expect(defense(s)).toBe(4 + 4 + CLASSES.warrior.def);
+    // 再存一次读一次不变
+    expect(migrate(JSON.parse(JSON.stringify(s)))).toEqual(s);
+  });
+
+  it('repairs broken v4 gear', () => {
+    const s = newSave(0, 'mage');
+    const raw = JSON.parse(JSON.stringify(s));
+    raw.gear.push({ id: 50, slot: 'weapon', wt: 'sword', tier: 1, q: 1, plus: 0, affixes: [] }, { id: 51, slot: 'head', tier: 9, q: 7, plus: 99, affixes: [] });
+    raw.equip.weapon = 50;
+    raw.equip.feet = 51;
+    raw.stash.gear = [51, 999];
+    const back = migrate(raw)!;
+    expect(back.gear.some((g) => g.id === 50)).toBe(false);
+    expect(weaponOf(back).wt).toBe('staff');
+    expect(back.equip.feet).toBe(0);
+    expect(back.gear.find((g) => g.id === 51)).toMatchObject({ tier: 4, q: 4, plus: 10 });
+    expect(back.stash.gear).toEqual([51]);
+    expect(back.gearSeq).toBeGreaterThan(51);
   });
 
   it('rejects garbage', () => {

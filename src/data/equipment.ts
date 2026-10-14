@@ -5,6 +5,7 @@ export interface Cost {
   items: Partial<Record<ItemId, number>>;
 }
 
+/** 各阶武器的基础攻击和颜色 */
 export const WEAPON_TIERS = [
   { atk: 4, color: '#c49a5e' },
   { atk: 8, color: '#e8894a' },
@@ -13,6 +14,7 @@ export const WEAPON_TIERS = [
   { atk: 30, color: '#62f0d6' },
 ];
 
+/** 各阶衣服的名字和基础数值 */
 export const ARMOR_TIERS = [
   { name: '布衣', def: 0, hp: 0, color: '#4f8f5a' },
   { name: '铜甲', def: 2, hp: 15, color: '#c0703a' },
@@ -23,13 +25,13 @@ export const ARMOR_TIERS = [
 
 export const MAX_TIER = WEAPON_TIERS.length - 1;
 
-/** 锻造到第 n 阶的花费，下标 0 为初始装备。 */
+/** 把一件装备升到第 n 阶的花费，下标 0 不用。金器和萤石器另外要有 Boss 的战利品（见 gear.ts 的 TIER_NEEDS）。 */
 export const FORGE_WEAPON: (Cost | null)[] = [
   null,
   { gold: 100, items: { copper: 5 } },
   { gold: 300, items: { iron: 5, copper: 3 } },
-  { gold: 800, items: { gold: 5, crown: 1 } },
-  { gold: 2000, items: { glowstone: 5, gold: 3, fang: 1 } },
+  { gold: 800, items: { gold: 5, gel: 6 } },
+  { gold: 2000, items: { glowstone: 5, gold: 3, cog: 4 } },
 ];
 
 export const FORGE_ARMOR: (Cost | null)[] = [
@@ -43,9 +45,3 @@ export const FORGE_ARMOR: (Cost | null)[] = [
 export const MAX_PLUS = 10;
 /** 从 +n 强化到 +n+1 的成功率 */
 export const ENHANCE_RATE = [1, 1, 1, 0.85, 0.7, 0.6, 0.5, 0.4, 0.3, 0.25];
-/** 各阶装备强化时消耗的矿石 */
-export const TIER_ORE: ItemId[] = ['copper', 'copper', 'iron', 'gold', 'glowstone'];
-
-export function enhanceCost(tier: number, plus: number): Cost {
-  return { gold: (plus + 1) * 40 * (tier + 1), items: { [TIER_ORE[tier]]: plus + 1 } };
-}

@@ -1,12 +1,11 @@
 import { CROPS } from '../../data/crops';
-import { MAX_PLUS } from '../../data/equipment';
 import { BOSSES } from '../../data/monsters';
 import { MAX_FLOOR, ZONES } from '../../data/floors';
 import type { ItemId } from '../../data/items';
 import { ITEMS, ITEM_IDS } from '../../data/items';
 import type { NpcId } from '../../data/npcs';
 import { NPCS, OWL_TIPS } from '../../data/npcs';
-import { enhanceCost, ENHANCE_RATE } from '../../data/equipment';
+import { gearName } from '../../data/gear';
 import { iconUrl, itemIcon } from '../../gfx/tiles';
 import type { ItemDef } from '../../data/items';
 import { BUFF_TEXT } from '../../data/items';
@@ -18,11 +17,13 @@ import { buy, price, sellAll, sellableValue } from '../../systems/economy';
 import * as forge from '../../systems/forge';
 import * as fr from '../../systems/friendship';
 import * as quests from '../../systems/quests';
-import { armorName, weaponName } from '../../systems/stats';
+import { unlockWeaponType } from '../../systems/gear';
 import type { Choice } from '../../ui/UI';
 import { itemCell } from '../../ui/UI';
 import { h } from '../../ui/dom';
 import type { PlayScene } from '../PlayScene';
+import { smithPanel } from './smith';
+import { stashPanel } from './stash';
 
 const itemName = (id: ItemId) => ITEMS[id].name;
 
@@ -130,53 +131,11 @@ export function smithMenu(sc: PlayScene, greeting?: string): void {
   const s = sc.s;
   const face = sc.npcFace('smith');
   const forgeDiscount = fr.hasPerk(s, 'smith', 6) ? 0.2 : 0;
-  const enhanceBonus = fr.hasPerk(s, 'smith', 4) ? 0.1 : 0;
-  const choices: Choice[] = [];
-  for (const kind of ['weapon', 'armor'] as const) {
-    const cost = forge.nextForgeCost(s, kind);
-    const next = s[kind].tier + 1;
-    if (cost) {
-      const name = kind === 'weapon' ? weaponName(s, next) : armorName(next);
-      choices.push({
-        label: `锻造 ${name}`,
-        note: forge.costText(cost, itemName, forgeDiscount),
-        disabled: !forge.canAfford(s, cost, forgeDiscount),
-        onSelect: () => {
-          const r = forge.forge(s, kind, forgeDiscount);
-          if (r === 'ok') {
-            sc.sfx('forge');
-            sc.shake(0.2);
-            sc.ui.dialog.say('铁匠·老岩', `叮！叮！……拿好你的【${name}】。比上一件强得多。`, { face });
-            sc.autosave();
-          } else sc.ui.dialog.say('铁匠·老岩', `材料不够。要 ${forge.costText(cost, itemName, forgeDiscount)}。`, { face, choices: [{ label: '返回', onSelect: () => smithMenu(sc) }, { label: '离开' }] });
-        },
-      });
-    }
-  }
-  for (const kind of ['weapon', 'armor'] as const) {
-    const g = s[kind];
-    if (g.plus >= MAX_PLUS) continue;
-    const cost = enhanceCost(g.tier, g.plus);
-    const name = kind === 'weapon' ? weaponName(s) : armorName(g.tier);
-    const rate = Math.round(Math.min(1, ENHANCE_RATE[g.plus] + enhanceBonus) * 100);
-    choices.push({
-      label: `强化 ${name} +${g.plus} → +${g.plus + 1}（${rate}%）`,
-      note: forge.costText(cost, itemName),
-      disabled: !forge.canAfford(s, cost),
-      onSelect: () => {
-        const r = forge.enhance(s, kind, enhanceBonus);
-        if (r === 'success') {
-          sc.sfx('forge');
-          const n = s[kind].plus;
-          smithMenu(sc, `成了！${name} +${n}。${n === 5 || n === 10 ? '看见那层光了吗？' : ''}`);
-        } else if (r === 'fail') {
-          sc.sfx('fail');
-          smithMenu(sc, '叮……裂了道纹，失败了。材料没了，等级没掉。再来？');
-        } else sc.toast('材料不够');
-        sc.autosave();
-      },
-    });
-  }
+  const choices: Choice[] = [{
+    label: '打理装备',
+    note: '强化 +1 到 +10、提升品质、升到更好的材料',
+    onSelect: () => smithPanel(sc),
+  }];
   // 武器图纸：最深到过一定层数后，老岩会画新的武器图纸
   for (const t of typesOf(s.cls)) {
     const wt = weaponType(t);
@@ -189,10 +148,10 @@ export function smithMenu(sc: PlayScene, greeting?: string): void {
       onSelect: () => {
         if (!forge.canAfford(s, bp.cost, forgeDiscount)) return;
         forge.pay(s, bp.cost, forgeDiscount);
-        s.weaponTypes.push(t);
+        const w = unlockWeaponType(s, t);
         sc.sfx('forge');
         sc.autosave();
-        smithMenu(sc, `【${wt.name}】的图纸画好了。阶级和强化跟你现在的武器一样，在背包的装备页随时换。`);
+        smithMenu(sc, `【${wt.name}】的图纸画好了，顺手照着打了一把${w ? `【${gearName(w)}】` : ''}送你，在背包里点它就能换上。以后宝箱里也会出这种武器。`);
       },
     });
   }
@@ -358,6 +317,7 @@ export function homeMenu(sc: PlayScene): void {
     choices: [
       { label: '睡觉', note: '睡到明天早上，会自动存档', onSelect: () => sc.sleep() },
       { label: '做饭', note: cookable ? `现在能做 ${cookable} 道菜` : '材料不够的话可以先看看菜谱', onSelect: () => cookPanel(sc) },
+      { label: '仓库箱', note: '和背包分开放东西，背包满了时新东西也会送到这里', onSelect: () => stashPanel(sc) },
       { label: '离开' },
     ],
   });

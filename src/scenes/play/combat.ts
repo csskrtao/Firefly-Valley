@@ -9,12 +9,15 @@ import { SKILLS } from '../../data/skills';
 import type { Enemy } from '../../entities/Enemy';
 import { Monster } from '../../entities/Monster';
 import { monsterSprites } from '../../gfx/sprites';
-import { addItem, owns } from '../../state/save';
+import { MAX_GEAR_TIER, MONSTER_GEAR_CHANCE, gearTierFor } from '../../data/gear';
+import { addItem, giveGear, owns } from '../../state/save';
+import { bossDrops, rollGear } from '../../systems/gear';
 import { gainXp, monsterXp } from '../../systems/level';
 import * as quests from '../../systems/quests';
 import { accSum, attack as atkStat, critChance, damageTaken, defense, lightRadiusMul, maxHp, weaponTypeOf } from '../../systems/stats';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
+import { announceGear } from './gearui';
 
 export type ShotKind = 'bolt' | 'shard' | 'dart' | 'orb' | 'fire' | 'knife';
 
@@ -447,6 +450,10 @@ function killEnemy(sc: PlayScene, e: Enemy): void {
     const drops: Partial<Record<ItemId, number>> = {};
     for (const dr of d.drops) if (Math.random() < dr.chance) drops[dr.item] = 1;
     giveItems(sc, drops, e.x, e.y);
+    if (Math.random() < MONSTER_GEAR_CHANCE) {
+      const g = giveGear(s, rollGear({ cls: s.cls, types: s.weaponTypes, tier: gearTierFor(sc.floor), source: 'monster', luck: accSum(s, 'luck') }));
+      announceGear(sc, [g], e.x, e.y - 8 - Object.keys(drops).length * 8);
+    }
     s.kills[mid] = (s.kills[mid] ?? 0) + 1;
     quests.onKill(s, mid);
     grantXp(sc, monsterXp(MONSTERS[mid].hp, sc.floor), e.x, e.y);
@@ -469,6 +476,9 @@ function killEnemy(sc: PlayScene, e: Enemy): void {
   const trophy: ItemId = id === 'slimeKing' ? 'crownRing' : 'jawCharm';
   if (!owns(s, trophy) && (first ? id === 'ironJaw' : Math.random() < 0.35)) drops[trophy] = 1;
   giveItems(sc, drops, e.x, e.y - 10);
+  // Boss 必掉稀有以上的装备，比这一带好一阶
+  const tier = Math.min(MAX_GEAR_TIER, gearTierFor(sc.floor) + 1);
+  const gears = bossDrops({ cls: s.cls, types: s.weaponTypes, tier, luck: accSum(s, 'luck') }, first).map((g) => giveGear(s, g));
   if (first) s.bosses.push(id);
   quests.onBoss(s, id);
   grantXp(sc, Math.round(def.hp / 2), e.x, e.y - 20);
@@ -476,12 +486,13 @@ function killEnemy(sc: PlayScene, e: Enemy): void {
   sc.setMusic();
   const face = id === 'slimeKing' ? monsterSprites.king[0] : undefined;
   sc.ui.dialog.say(def.name, def.defeat, { face });
-  if (drops[trophy]) sc.ui.dialog.say('系统', `得到了饰品【${ITEMS[trophy].name}】，在背包的装备页可以戴上。`);
+  if (drops[trophy]) sc.ui.dialog.say('系统', `得到了饰品【${ITEMS[trophy].name}】，在背包里点它就能戴上。`);
+  announceGear(sc, gears, e.x, e.y - 40, true);
   if (first) {
     const list = Object.entries(def.firstDrops).map(([k, n]) => `${ITEMS[k as ItemId].name}×${n}`).join('、');
     sc.ui.dialog.say('系统', `击败了${def.name}！获得 ${list}，以及 ${g} 金币。`);
     if (id === 'slimeKing') {
-      sc.ui.dialog.say('系统', '王冠凝胶可以交给老岩打造金器。通往锈铁坑道的楼梯出现了。');
+      sc.ui.dialog.say('系统', '有了王冠凝胶，老岩就肯把装备升成金器了。通往锈铁坑道的楼梯出现了。');
       if (unlocks.add('spirit')) {
         sc.ui.dialog.say('？？？', '……你身上有萤石的味道。我等这一天很久了。');
         sc.ui.dialog.say('系统', '隐藏职业【萤灵使】已解锁！新建存档时可以选择。');
