@@ -2,7 +2,7 @@ import { TS, VH, VW } from '../../core/constants';
 import { TAU, hash, rnd, wrap } from '../../core/math';
 import type { CropId } from '../../data/crops';
 import { CROPS } from '../../data/crops';
-import { floorName, zoneFor } from '../../data/floors';
+import { zoneFor } from '../../data/floors';
 import { WEAPON_TIERS } from '../../data/equipment';
 import type { ItemDef, ItemId } from '../../data/items';
 import { ITEMS } from '../../data/items';
@@ -15,6 +15,8 @@ import {
   binTile, caveTile, cliffTile, fenceTiles, fieldTile, flowerTiles, grassTiles, mineTiles, oreImg, pathTile, plazaTile, tilledTile, wetTile,
 } from '../../gfx/tiles';
 import { seasonOf } from '../../state/save';
+import { PILLAR_H, WAYSTONE_H, barrierTile, gravelTiles, marshTiles, pillarImgs, reedTiles, ruinTiles, waystoneImgs } from '../../gfx/regionTiles';
+import { foragePrefix } from '../../systems/regions';
 import { nightAlpha } from '../../systems/time';
 import { equipped, weaponOf } from '../../systems/gear';
 import { weaponTypeOf } from '../../systems/stats';
@@ -24,6 +26,7 @@ import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
 import { drawExplore, exploreHighlight, exploreLights } from './explore';
+import { drawAtmosphere } from './regionFx';
 
 /** 光照层，大小跟着视野变 */
 const dark = document.createElement('canvas');
@@ -37,7 +40,9 @@ export function renderPlay(sc: PlayScene): void {
   const cy = sc.camera.oy;
   const season = seasonOf(sc.s.day);
   const town = sc.mode === 'town';
+  const outdoor = sc.mode !== 'mine';
   const ow = sc.overworld;
+  const area = sc.area;
 
   b.fillStyle = '#0b0910';
   b.fillRect(0, 0, VW, VH);
@@ -46,12 +51,14 @@ export function renderPlay(sc: PlayScene): void {
   const y0 = Math.max(0, Math.floor(cy / TS));
   const x1 = Math.min(map.w - 1, Math.floor((cx + VW) / TS));
   const y1 = Math.min(map.h - 1, Math.floor((cy + VH) / TS));
-  const mt = town ? null : mineTiles(sc.floor === zoneFor(sc.floor).boss.floor ? zoneFor(sc.floor).boss.pal : zoneFor(sc.floor).pal);
+  const mt = outdoor ? null : mineTiles(sc.floor === zoneFor(sc.floor).boss.floor ? zoneFor(sc.floor).boss.pal : zoneFor(sc.floor).pal);
   const night = nightAlpha(sc.s.time) > 0.25;
 
   // 按 y 排序绘制，前后遮挡正确。高过一格的东西（树、路灯、房子）也放进来
   const list: { y: number; d: () => void }[] = [];
-  const inForest = (x: number, y: number) => x >= ow.forest[0] && x <= ow.forest[2] && y >= ow.forest[1] && y <= ow.forest[3];
+  const fr = area.forest;
+  const inForest = (x: number, y: number) => !!fr && x >= fr[0] && x <= fr[2] && y >= fr[1] && y <= fr[3];
+  const underWaystone = sc.region === 'ruins' ? ruinTiles[0] : pathTile;
 
   // 树冠会伸到上面一格多，所以多扫两行
   for (let y = y0; y <= Math.min(map.h - 1, y1 + 2); y++) {
@@ -71,10 +78,15 @@ export function renderPlay(sc: PlayScene): void {
         continue;
       }
       if (t === Tile.TREE) {
-        const img = tallTrees[season][inForest(x, y) ? (hash(x, y * 3) < 0.55 ? 2 : Math.floor(hash(x * 5, y) * 2)) : hash(x * 5, y) < 0.15 ? 2 : Math.floor(hash(x * 5, y) * 2)];
+        const img = tallTrees[season][area.pines ? (hash(x, y * 3) < 0.8 ? 2 : 0) : inForest(x, y) ? (hash(x, y * 3) < 0.55 ? 2 : Math.floor(hash(x * 5, y) * 2)) : hash(x * 5, y) < 0.15 ? 2 : Math.floor(hash(x * 5, y) * 2)];
         list.push({ y: y * TS + 14, d: () => b.drawImage(img, px - 4, py + TS - TREE_H) });
       } else if (t === Tile.LAMP) {
         list.push({ y: y * TS + 14, d: () => b.drawImage(night ? lampImgs.on : lampImgs.off, px, py - 16) });
+      } else if (t === Tile.PILLAR) {
+        const img = pillarImgs[Math.floor(hash(x * 7, y) * 3)];
+        list.push({ y: y * TS + 14, d: () => b.drawImage(img, px, py + TS - PILLAR_H) });
+      } else if (t === Tile.WAYSTONE) {
+        list.push({ y: y * TS + 14, d: () => b.drawImage(waystoneImgs.on, px, py + TS - WAYSTONE_H) });
       }
       if (!visible) continue;
       const grass = grassTiles[season][Math.floor(hash(x, y) * 3)];
@@ -98,7 +110,13 @@ export function renderPlay(sc: PlayScene): void {
         case Tile.STONE: b.drawImage(stoneTiles[season], px, py); break;
         case Tile.SIGN: b.drawImage(signTiles[season], px, py); break;
         case Tile.BENCH: b.drawImage(plazaTile, px, py); b.drawImage(benchTile, px, py); break;
+        case Tile.MARSH: b.drawImage(marshTiles[season][hash(x, y) < 0.5 ? 0 : 1], px, py); break;
+        case Tile.REED: b.drawImage(marshTiles[season][0], px, py); b.drawImage(reedTiles[season], px, py); break;
+        case Tile.GRAVEL: b.drawImage(gravelTiles[season][hash(x, y) < 0.5 ? 0 : 1], px, py); break;
+        case Tile.RUIN: case Tile.PILLAR: b.drawImage(ruinTiles[hash(x, y) < 0.7 ? 0 : 1], px, py); break;
+        case Tile.WAYSTONE: b.drawImage(underWaystone, px, py); break;
       }
+      if (sc.barriers.has(`${x},${y}`)) b.drawImage(barrierTile, px, py);
       if (t === Tile.FIELD) {
         const f = sc.s.field[`${x},${y}`];
         if (f) {
@@ -115,14 +133,15 @@ export function renderPlay(sc: PlayScene): void {
       if (bx > VW + 8 || by > VH + 8 || bx + bd.w * TS < -8 || by + bd.h * TS < -40) continue;
       list.push({ y: (bd.y + bd.h) * TS - 1, d: () => drawBuilding(sc, bd, cx, cy) });
     }
-    // 地上的采集物
-    for (const [k, id] of Object.entries(sc.s.forage)) {
-      const [x, y] = k.split(',').map(Number);
+  }
+  if (outdoor) {
+    // 地上的采集物（只画当前区域的）
+    for (const [x, y, id] of forageHere(sc)) {
       if (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1) continue;
       const bob = Math.round(Math.sin(sc.clock * 3 + x + y) * 0.6);
       b.drawImage(forageImg(id), x * TS - cx, y * TS - cy + bob);
     }
-    drawExplore(sc, b, cx, cy, list);
+    if (town) drawExplore(sc, b, cx, cy, list);
   }
 
   // 面前可交互格子的提示框
@@ -131,6 +150,8 @@ export function renderPlay(sc: PlayScene): void {
     const t = map.get(tx, ty);
     const show = town
       ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN || exploreHighlight(sc, tx, ty)
+      : sc.mode === 'wild'
+      ? t === Tile.SIGN || t === Tile.WAYSTONE
       : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty) || sc.chests.some((c) => !c.open && c.tx === tx && c.ty === ty);
     if (show) {
       b.strokeStyle = 'rgba(255,255,255,.55)';
@@ -199,21 +220,34 @@ export function renderPlay(sc: PlayScene): void {
   }
   sc.fx.drawWorld(b, cx, cy);
 
-  if (town) {
-    drawFireflies(sc, cx, cy);
-    drawWeather(sc);
-  }
+  if (town) drawFireflies(sc, cx, cy);
+  if (sc.mode === 'wild') drawAtmosphere(sc, cx, cy);
+  if (outdoor) drawWeather(sc);
   drawLighting(sc, cx, cy);
 
   sc.game.renderer.present();
   sc.fx.drawText(sc.game.renderer, cx, cy);
-  if (sc.mode === 'mine' && sc.floorBanner > 0) {
+  if (sc.floorBanner > 0 && sc.bannerText) {
     const a = Math.min(1, sc.floorBanner);
-    sc.game.renderer.text(`第 ${sc.floor} 层 · ${floorName(sc.floor)}`, VW / 2, VH * 0.32, '#f4ecd8', 11, a, '"ZCOOL QingKe HuangYou", "Noto Sans SC", sans-serif', 400);
+    sc.game.renderer.text(sc.bannerText, VW / 2, VH * 0.32, '#f4ecd8', 11, a, '"ZCOOL QingKe HuangYou", "Noto Sans SC", sans-serif', 400);
   }
 }
 
 const chestImgs = [chestImg(false), chestImg(true)];
+
+/** 当前区域地上的采集物：[x, y, 物品] */
+function forageHere(sc: PlayScene): [number, number, ItemId][] {
+  const prefix = foragePrefix(sc.region);
+  const out: [number, number, ItemId][] = [];
+  for (const [k, id] of Object.entries(sc.s.forage)) {
+    if (!k.startsWith(prefix)) continue;
+    const rest = k.slice(prefix.length);
+    if (rest.includes(':')) continue;
+    const [x, y] = rest.split(',').map(Number);
+    out.push([x, y, id]);
+  }
+  return out;
+}
 
 const forageCache = new Map<ItemId, Img>();
 function forageImg(id: ItemId): Img {
@@ -274,7 +308,7 @@ function drawWater(sc: PlayScene, x: number, y: number, px: number, py: number, 
   b.fillRect(px + ((o + 7) % 12), py + 10 - (x % 2) * 4, 3, 1);
   const same = (t: number) => t === Tile.WATER || t === Tile.FOUNTAIN || t === Tile.BRIDGE;
   const grassEdge = ['#5d9e3f', '#4f9a3a', '#9a9a44', '#dfe8ee'][season];
-  const edge = (t: number) => (fountain ? '#8f8a88' : t === Tile.SAND ? '#e8d4a0' : t === Tile.FOREST ? '#3f7f34' : grassEdge);
+  const edge = (t: number) => (fountain ? '#8f8a88' : t === Tile.SAND ? '#e8d4a0' : t === Tile.FOREST ? '#3f7f34' : t === Tile.MARSH || t === Tile.REED ? '#3f7548' : t === Tile.GRAVEL ? '#7f776f' : t === Tile.RUIN || t === Tile.PILLAR ? '#6f6a7c' : grassEdge);
   const n = map.get(x, y - 1);
   const w = map.get(x - 1, y);
   const e = map.get(x + 1, y);
@@ -678,7 +712,8 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
   const { b } = sc.game.renderer;
   let a = 0;
   if (sc.mode === 'mine') a = 0.6 + Math.min(0.15, sc.floor * 0.012);
-  else a = nightAlpha(sc.s.time);
+  // 遗迹里白天也有点暗
+  else a = sc.region === 'ruins' ? Math.max(0.18, nightAlpha(sc.s.time)) : nightAlpha(sc.s.time);
   if (a <= 0) return;
   if (dark.width !== VW || dark.height !== VH) {
     dark.width = VW;
@@ -719,11 +754,6 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
       const ly = y * TS - 10 - cy;
       if (visible(lx, ly, 50)) hole(lx, ly + 8, 46, 0.9);
     }
-    for (const k of Object.keys(sc.s.forage)) {
-      if (sc.s.forage[k] !== 'fireflower') continue;
-      const [x, y] = k.split(',').map(Number);
-      hole(x * TS + 8 - cx, y * TS + 8 - cy, 18, 0.7);
-    }
     for (const [x, y] of exploreLights(sc)) if (visible(x - cx, y - cy, 60)) hole(x - cx, y - 8 - cy, 40, 0.85);
     for (const [k, f] of Object.entries(sc.s.field)) {
       if (f.crop === 'berry' && f.days >= CROPS.berry.days) {
@@ -732,11 +762,18 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
       }
     }
   }
+  if (sc.mode !== 'mine') {
+    for (const [x, y, id] of forageHere(sc)) if (id === 'fireflower') hole(x * TS + 8 - cx, y * TS + 8 - cy, 18, 0.7);
+    const ws = sc.area.waystone;
+    if (ws) hole(ws[0] * TS + 8 - cx, ws[1] * TS - 4 - cy, 40, 0.85);
+  }
   dk.globalCompositeOperation = 'source-over';
   b.drawImage(dark, 0, 0);
-  if (sc.mode === 'town') {
+  if (sc.mode !== 'mine') {
     b.fillStyle = `rgba(60,40,120,${a * 0.18})`;
     b.fillRect(0, 0, VW, VH);
+  }
+  if (sc.mode === 'town') {
     // 路灯下一圈暖黄色的光
     b.globalCompositeOperation = 'lighter';
     for (const [x, y] of sc.overworld.lamps) {

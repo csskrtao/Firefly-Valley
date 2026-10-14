@@ -14,11 +14,13 @@ import { clockText } from '../../systems/time';
 import { sellAll, sellableValue } from '../../systems/economy';
 import * as farm from '../../systems/farming';
 import { accSum, maxHp } from '../../systems/stats';
+import { forageKey } from '../../systems/regions';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { announceGear } from './gearui';
 import { exploreInteract } from './explore';
 import { homeMenu, mineEntrance, talkTo } from './town';
+import { interactWild } from './regions';
 
 export const TOOLS = [
   { id: 'hoe', name: '锄头', cost: 2 },
@@ -73,8 +75,8 @@ export function useTool(sc: PlayScene): void {
   const [tx, ty] = sc.player.frontTile();
   const key = farm.fieldKey(tx, ty);
 
-  if (sc.mode === 'town') {
-    if (farm.isRipe(s.field[key])) {
+  if (sc.mode !== 'mine') {
+    if (sc.mode === 'town' && farm.isRipe(s.field[key])) {
       doHarvest(sc, tx, ty);
       return;
     }
@@ -207,6 +209,10 @@ export function interact(sc: PlayScene): void {
     talkTo(sc, npc.id);
     return;
   }
+  if (sc.mode === 'wild') {
+    interactWild(sc, tx, ty);
+    return;
+  }
   const t = sc.map.get(tx, ty);
   if (sc.mode === 'town') {
     const key = farm.fieldKey(tx, ty);
@@ -295,11 +301,11 @@ function openChest(sc: PlayScene, chest: { tx: number; ty: number; open: boolean
 /** 走到采集物上自动捡起来 */
 export function pickupForage(sc: PlayScene): void {
   const [tx, ty] = sc.player.tile();
-  const key = `${tx},${ty}`;
+  const key = forageKey(sc.region, tx, ty);
   if (sc.s.forage[key]) collectForage(sc, key, tx, ty);
 }
 
-function collectForage(sc: PlayScene, key: string, tx: number, ty: number): void {
+export function collectForage(sc: PlayScene, key: string, tx: number, ty: number): void {
   const s = sc.s;
   // 刺客眼尖、四叶草带来好运，有时能多捡一个
   const lucky = Math.random() < (s.cls === 'rogue' ? 0.3 : 0) + accSum(s, 'luck') * 0.2;

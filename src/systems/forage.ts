@@ -19,8 +19,9 @@ export function forageFor(area: ForageArea, season: number): ItemId[] {
 /**
  * 新的一天长出新的采集物：先清掉过季的，再在空着的候选格子上补到上限。
  * spots 是地图给出的候选格子，rand 可以传固定种子方便测试。
+ * prefix 加在键前面，用来区分不同区域（小镇是空串，野外区域是 "区域id:"）。
  */
-export function spawnForage(s: SaveData, spots: Record<ForageArea, [number, number][]>, rand: () => number = Math.random): number {
+export function spawnForage(s: SaveData, spots: Record<ForageArea, [number, number][]>, rand: () => number = Math.random, prefix = ''): number {
   const season = seasonOf(s.day);
   for (const [k, id] of Object.entries(s.forage)) {
     const seasons = (ITEMS[id] as { seasons?: number[] }).seasons;
@@ -31,12 +32,12 @@ export function spawnForage(s: SaveData, spots: Record<ForageArea, [number, numb
     const pool = forageFor(area, season);
     const cells = spots[area];
     if (!pool.length || !cells.length) continue;
-    const keys = new Set(cells.map(([x, y]) => `${x},${y}`));
+    const keys = new Set(cells.map(([x, y]) => `${prefix}${x},${y}`));
     let have = Object.keys(s.forage).filter((k) => keys.has(k)).length;
     for (let i = 0; i < DAILY[area] && have < FORAGE_CAP[area]; i++) {
       for (let tries = 0; tries < 20; tries++) {
         const [x, y] = cells[Math.floor(rand() * cells.length)];
-        const k = `${x},${y}`;
+        const k = `${prefix}${x},${y}`;
         if (s.forage[k]) continue;
         s.forage[k] = pool[Math.floor(rand() * pool.length)];
         have++;

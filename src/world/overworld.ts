@@ -37,6 +37,9 @@ export interface Overworld {
 export const OW_W = 84;
 export const OW_H = 56;
 
+/** 通往相邻区域的路口：北边（x 范围）去北山，西边和东边（y 范围）去湿地和雾语森林 */
+export const TOWN_GATES = { n: [19, 20], w: [9, 10], e: [9, 10] } as const;
+
 /** 河流和湖泊在地图上的位置 */
 const LAKE = { cx: 13.5, cy: 41, rx: 9.2, ry: 5.6 };
 const RIVER_Y = 40;
@@ -109,8 +112,11 @@ export function buildOverworld(): Overworld {
     m.set(RIVER_TURN + 1, y, Tile.WATER);
   }
 
-  // 大路
-  m.fill(6, 9, 72, 10, Tile.PATH);
+  // 大路，西头通往星湖湿地，东头穿过萤火森林通往雾语森林
+  m.fill(0, TOWN_GATES.w[0], 72, TOWN_GATES.w[1], Tile.PATH);
+  m.fill(72, TOWN_GATES.e[0], OW_W - 1, TOWN_GATES.e[1], Tile.PATH);
+  // 往北上山的小路
+  m.fill(TOWN_GATES.n[0], 0, TOWN_GATES.n[1], 8, Tile.PATH);
 
   // 农场：围栏里是一大片田
   const field: [number, number, number, number] = [5, 13, 24, 26];
@@ -172,6 +178,9 @@ export function buildOverworld(): Overworld {
     '24,32': '镜湖。湖边的沙滩上偶尔能捡到贝壳。',
     '48,48': '老矿脉入口。越往深处走，怪物越强，矿石也越好。',
     '29,11': '→ 小镇　铁匠铺 · 杂货店 · 诊所 · 冒险者公会',
+    '21,6': '↑ 北山岩地。山口以前被一大团凝胶堵着。',
+    '3,8': '← 星湖湿地',
+    '80,8': '→ 雾语森林。起雾的时候别走散了。',
   };
   for (const k of Object.keys(signs)) {
     const [x, y] = k.split(',').map(Number);

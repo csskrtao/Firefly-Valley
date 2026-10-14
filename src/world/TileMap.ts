@@ -26,13 +26,25 @@ export const Tile = {
   BENCH: 24,
   /** 森林里的深色草地 */
   FOREST: 25,
+  /** 湿地的软泥地 */
+  MARSH: 26,
+  /** 芦苇丛，可以穿过 */
+  REED: 27,
+  /** 北山的碎石地 */
+  GRAVEL: 28,
+  /** 遗迹的石板地 */
+  RUIN: 29,
+  /** 遗迹的断柱和残墙 */
+  PILLAR: 30,
+  /** 萤石路标：每个野外区域的快速旅行点 */
+  WAYSTONE: 31,
 } as const;
 
 export type TileId = (typeof Tile)[keyof typeof Tile];
 
 const SOLID = new Set<number>([
   Tile.WATER, Tile.TREE, Tile.WALL, Tile.DOOR, Tile.FENCE, Tile.CAVE, Tile.ROCK, Tile.BIN, Tile.FOUNTAIN, Tile.CLIFF,
-  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH,
+  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH, Tile.PILLAR, Tile.WAYSTONE,
 ]);
 
 export const isSolidTile = (t: number): boolean => SOLID.has(t);

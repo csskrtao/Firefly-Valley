@@ -20,10 +20,11 @@ export class Monster extends Enemy {
   private sporeCd = rnd(1, 3);
   private puff = 0;
 
-  constructor(mid: MonsterId, x: number, y: number, floor: number) {
+  /** size 放大碰撞框，给野外区域的 Boss 用 */
+  constructor(mid: MonsterId, x: number, y: number, floor: number, size = 1) {
     const d = MONSTERS[mid];
     const s = scaleFor(floor);
-    super(x, y, d.hw, d.hh, Math.round(d.hp * s.hp), Math.round(d.atk * s.atk));
+    super(x, y, d.hw * size, d.hh * size, Math.round(d.hp * s.hp), Math.round(d.atk * s.atk));
     this.def = d;
     this.mid = mid;
     this.knock = d.knock;
