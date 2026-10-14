@@ -6,6 +6,8 @@ import { unlocks } from '../core/settings';
 import { SLOT_COUNT, slotKey, storage } from '../core/Storage';
 import type { ClassDef, ClassId } from '../data/classes';
 import { CLASSES, CLASS_IDS } from '../data/classes';
+import { SKILLS } from '../data/skills';
+import { defaultType, isRanged, weaponType } from '../data/weapons';
 import type { SaveData } from '../state/save';
 import { migrate, newSave } from '../state/save';
 import { dateText } from '../systems/time';
@@ -161,7 +163,7 @@ export class TitleScene implements Scene {
       }
       const card = h('button', { type: 'button', class: `class-card cls-${id}`, 'data-nav': '' },
         h('b', { text: C.name }),
-        h('small', { text: `${C.ranged ? '远程' : '近战'} · 生命 ${100 + C.hp} · 技能【${C.skill.name}】` }),
+        h('small', { text: `${isRanged(weaponType(defaultType(id)).kind) ? '远程' : '近战'} · 生命 ${100 + C.hp} · 初始技能【${SKILLS[id][0].name}】` }),
         h('p', { text: C.desc }),
       );
       card.addEventListener('click', () => this.start(slot, id));

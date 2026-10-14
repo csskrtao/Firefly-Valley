@@ -15,6 +15,7 @@ const renderer = new Renderer($<HTMLCanvasElement>('#game'));
 const input = new Input();
 input.enabled = true;
 input.bindTouch($('#touch'));
+input.bindStick($('#stick'));
 
 const game = new Game(renderer, input);
 const app: App = {

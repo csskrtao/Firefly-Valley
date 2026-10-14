@@ -21,7 +21,8 @@
           <div class="hud-left">
             <div class="bar hp"><i id="hpBar"></i><span id="hpTxt">HP</span></div>
             <div class="bar en"><i id="enBar"></i><span id="enTxt">体力</span></div>
-            <p class="hud-skill" id="hudSkill"></p>
+            <div class="bar xp"><i id="xpBar"></i><span id="xpTxt">Lv.1</span></div>
+            <p class="hud-buffs" id="hudBuffs" hidden></p>
             <p class="hud-quest" id="hudQuest" hidden></p>
           </div>
           <div class="hud-right">
@@ -31,6 +32,7 @@
             <p class="where" id="hudWhere"></p>
           </div>
           <div class="hotbar" id="hotbar"></div>
+          <div class="skills" id="hudSkills"></div>
           <div class="bossbar" id="bossbar" hidden>
             <b id="bossName"></b>
             <div class="bossbar-track"><i id="bossFill"></i></div>
@@ -72,20 +74,17 @@
       <div class="fade" id="fade"></div>
     </div>
     <div class="touch" id="touch">
-      <div class="dpad">
-        <button type="button" data-hold="up" aria-label="上">▲</button>
-        <button type="button" data-hold="left" aria-label="左">◀</button>
-        <button type="button" data-hold="right" aria-label="右">▶</button>
-        <button type="button" data-hold="down" aria-label="下">▼</button>
-      </div>
+      <div class="stick" id="stick" aria-label="移动"><i></i></div>
       <div class="touch-menu">
         <button type="button" data-press="inventory">背包</button>
         <button type="button" data-press="pause">菜单</button>
       </div>
       <div class="acts">
+        <button type="button" class="sk" data-press="skill" id="tSkill0">技能</button>
+        <button type="button" class="sk" data-press="skill2" id="tSkill1">技能</button>
+        <button type="button" class="sk" data-press="skill3" id="tSkill2">技能</button>
         <button type="button" data-press="interact">交互</button>
         <button type="button" data-press="tool">工具</button>
-        <button type="button" data-press="skill">技能</button>
         <button type="button" class="big" data-hold="attack">攻击</button>
       </div>
     </div>

@@ -7,7 +7,12 @@ import { ITEMS, ITEM_IDS } from '../../data/items';
 import type { NpcId } from '../../data/npcs';
 import { NPCS, OWL_TIPS } from '../../data/npcs';
 import { enhanceCost, ENHANCE_RATE } from '../../data/equipment';
-import { itemIcon } from '../../gfx/tiles';
+import { iconUrl, itemIcon } from '../../gfx/tiles';
+import type { ItemDef } from '../../data/items';
+import { BUFF_TEXT } from '../../data/items';
+import { RECIPES } from '../../data/recipes';
+import { typesOf, weaponType } from '../../data/weapons';
+import { canCook, cook } from '../../systems/cooking';
 import { addItem, count, seasonOf } from '../../state/save';
 import { buy, price, sellAll, sellableValue } from '../../systems/economy';
 import * as forge from '../../systems/forge';
@@ -56,7 +61,13 @@ function grantPerkGifts(sc: PlayScene, id: NpcId): void {
   }
   if (id === 'owl' && fr.hearts(s, 'owl') >= 5 && !s.perks.includes('owl5')) {
     s.perks.push('owl5');
-    sc.ui.dialog.say('系统', '获得了一根咕咕羽毛。（收集要素将在后续版本开放）');
+    addItem(s, 'owlFeather', 1);
+    sc.ui.dialog.say('系统', '获得了饰品【咕咕羽毛】：移动速度 +10%。在背包的装备页可以戴上。');
+  }
+  if (id === 'ian' && fr.hearts(s, 'ian') >= 5 && !s.perks.includes('ian5')) {
+    s.perks.push('ian5');
+    addItem(s, 'scholarGlasses', 1);
+    sc.ui.dialog.say('系统', '获得了饰品【学者眼镜】：获得的经验 +25%。在背包的装备页可以戴上。');
   }
 }
 
@@ -77,9 +88,9 @@ export function giftPanel(sc: PlayScene, id: NpcId): void {
     id: 'gift',
     label: '礼物',
     render: (body) => {
-      const giftable = ITEM_IDS.filter((it) => count(sc.s, it) > 0 && ['crop', 'ore', 'material'].includes(ITEMS[it].kind));
+      const giftable = ITEM_IDS.filter((it) => count(sc.s, it) > 0 && ['crop', 'forage', 'dish', 'ore', 'material'].includes(ITEMS[it].kind));
       if (!giftable.length) {
-        body.append(h('p', { class: 'empty', text: '背包里没有能送的东西。作物、矿石和怪物素材都可以当礼物。' }));
+        body.append(h('p', { class: 'empty', text: '背包里没有能送的东西。作物、采集物、料理、矿石和怪物素材都可以当礼物。' }));
         return;
       }
       const grid = h('div', { class: 'grid' });
@@ -166,6 +177,25 @@ export function smithMenu(sc: PlayScene, greeting?: string): void {
       },
     });
   }
+  // 武器图纸：最深到过一定层数后，老岩会画新的武器图纸
+  for (const t of typesOf(s.cls)) {
+    const wt = weaponType(t);
+    const bp = wt.blueprint;
+    if (!bp || s.weaponTypes.includes(t) || s.deepest < bp.floor) continue;
+    choices.push({
+      label: `买图纸：${wt.name}`,
+      note: `${forge.costText(bp.cost, itemName, forgeDiscount)} · ${wt.desc}`,
+      disabled: !forge.canAfford(s, bp.cost, forgeDiscount),
+      onSelect: () => {
+        if (!forge.canAfford(s, bp.cost, forgeDiscount)) return;
+        forge.pay(s, bp.cost, forgeDiscount);
+        s.weaponTypes.push(t);
+        sc.sfx('forge');
+        sc.autosave();
+        smithMenu(sc, `【${wt.name}】的图纸画好了。阶级和强化跟你现在的武器一样，在背包的装备页随时换。`);
+      },
+    });
+  }
   const oreValue = sellableValue(s, ['ore']);
   choices.push({
     label: oreValue ? `卖出全部矿石 +${oreValue}金` : '卖出全部矿石',
@@ -201,12 +231,12 @@ export function shopMenu(sc: PlayScene, greeting?: string): void {
     },
   }));
   if (!seeds.length) choices.push({ label: '（冬天没有能种的种子）', disabled: true });
-  const cropValue = sellableValue(s, ['crop']);
+  const cropValue = sellableValue(s, ['crop', 'forage']);
   choices.push({
-    label: cropValue ? `卖出全部作物 +${cropValue}金` : '卖出全部作物',
+    label: cropValue ? `卖出全部作物和采集物 +${cropValue}金` : '卖出全部作物和采集物',
     disabled: !cropValue,
     onSelect: () => {
-      sellAll(s, ['crop']);
+      sellAll(s, ['crop', 'forage']);
       sc.sfx('coin');
       shopMenu(sc, '新鲜的作物！我收下啦。');
     },
@@ -322,10 +352,60 @@ function kidTalk(sc: PlayScene): void {
 
 /* ---------- 家和矿脉入口 ---------- */
 
-export function sleepPrompt(sc: PlayScene): void {
-  sc.ui.dialog.say('家', '祖母的旧床还挺软的。要睡到明天吗？（会自动存档）', {
-    choices: [{ label: '睡觉', onSelect: () => sc.sleep() }, { label: '还不困' }],
+export function homeMenu(sc: PlayScene): void {
+  const cookable = RECIPES.filter((r) => canCook(sc.s, r)).length;
+  sc.ui.dialog.say('家', '祖母的旧房子。床还挺软的，灶台也还能用。', {
+    choices: [
+      { label: '睡觉', note: '睡到明天早上，会自动存档', onSelect: () => sc.sleep() },
+      { label: '做饭', note: cookable ? `现在能做 ${cookable} 道菜` : '材料不够的话可以先看看菜谱', onSelect: () => cookPanel(sc) },
+      { label: '离开' },
+    ],
   });
+}
+
+/** 灶台：列出全部菜谱，材料够了就能做 */
+export function cookPanel(sc: PlayScene): void {
+  sc.ui.panel.show('灶台', [{
+    id: 'cook',
+    label: '菜谱',
+    render: (body) => {
+      const s = sc.s;
+      const list = h('div', { class: 'recipes' });
+      for (const r of RECIPES) {
+        const d = ITEMS[r.dish] as ItemDef;
+        const ok = canCook(s, r);
+        const needs = (Object.entries(r.needs) as [ItemId, number][]).map(([id, n]) => {
+          const have = count(s, id);
+          return h('span', { class: have >= n ? 'have' : 'miss', text: `${itemName(id)} ${have}/${n}` });
+        });
+        const eff = [d.heal ? `+${d.heal} HP` : '', d.energy ? `+${d.energy} 体力` : '', d.buff ? BUFF_TEXT[d.buff.stat](d.buff.value) : ''].filter(Boolean).join(' · ');
+        const row = h('button', { type: 'button', class: `recipe${ok ? '' : ' off'}`, 'data-nav': '' },
+          h('img', { src: iconUrl(itemIcon(r.dish)), alt: '' }),
+          h('div', {},
+            h('b', { text: d.name }),
+            h('small', { text: eff }),
+            h('p', {}, ...needs),
+          ),
+          h('em', { text: count(s, r.dish) ? `已有 ${count(s, r.dish)}` : '' }),
+        );
+        row.addEventListener('click', () => {
+          if (!cook(s, r)) {
+            sc.sfx('fail');
+            sc.toast('材料不够');
+            return;
+          }
+          sc.sfx('cook');
+          sc.toast(`做好了【${d.name}】`);
+          sc.ui.panel.refresh();
+        });
+        list.append(row);
+      }
+      body.append(
+        h('p', { class: 'muted', text: '料理能回复生命和体力，还附带一种效果，持续几个小时（睡一觉就没了）。同一时间只能有一种料理效果。' }),
+        list,
+      );
+    },
+  }]);
 }
 
 export function mineEntrance(sc: PlayScene): void {

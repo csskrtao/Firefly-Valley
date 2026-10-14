@@ -1,13 +1,16 @@
 import { CLASSES } from '../../data/classes';
 import { ARMOR_TIERS, MAX_PLUS, WEAPON_TIERS } from '../../data/equipment';
-import type { ItemId, ItemKind } from '../../data/items';
-import { ITEMS, ITEM_IDS } from '../../data/items';
+import type { AccStat, ItemDef, ItemId, ItemKind } from '../../data/items';
+import { BUFF_TEXT, ITEMS, ITEM_IDS } from '../../data/items';
+import { SKILLS } from '../../data/skills';
+import { WEAPON_TYPES, typesOf, weaponType } from '../../data/weapons';
+import { MAX_LEVEL, xpToNext } from '../../systems/level';
 import { MONSTERS } from '../../data/monsters';
 import type { MonsterId } from '../../data/monsters';
 import { NPCS, NPC_IDS } from '../../data/npcs';
 import { QUESTS } from '../../data/quests';
-import { itemIcon } from '../../gfx/tiles';
-import { count } from '../../state/save';
+import { iconUrl, itemIcon } from '../../gfx/tiles';
+import { addItem, count, removeItem } from '../../state/save';
 import { hearts, MAX_HEARTS } from '../../systems/friendship';
 import * as quests from '../../systems/quests';
 import { armorName, attack, critChance, defense, maxHp, weaponName } from '../../systems/stats';
@@ -18,8 +21,10 @@ import { itemCell } from '../../ui/UI';
 import type { PlayScene } from '../PlayScene';
 import { consume } from './actions';
 
-const KIND_ORDER: ItemKind[] = ['consumable', 'crop', 'seed', 'ore', 'material', 'key'];
-const KIND_NAME: Record<ItemKind, string> = { consumable: '药品', crop: '作物', seed: '种子', ore: '矿石', material: '怪物素材', key: '重要物品' };
+const KIND_ORDER: ItemKind[] = ['consumable', 'dish', 'crop', 'forage', 'seed', 'accessory', 'ore', 'material', 'key'];
+const KIND_NAME: Record<ItemKind, string> = {
+  consumable: '药品', dish: '料理', crop: '作物', forage: '采集物', seed: '种子', accessory: '饰品', ore: '矿石', material: '怪物素材', key: '重要物品',
+};
 
 function bagTab(sc: PlayScene): PanelTab {
   return {
@@ -37,16 +42,20 @@ function bagTab(sc: PlayScene): PanelTab {
         for (const id of ids) {
           const d = ITEMS[id];
           const cell = itemCell(itemIcon(id), d.name, count(s, id));
-          const usable = ('heal' in d && d.heal) || ('energy' in d && d.energy);
+          const def = d as ItemDef;
+          const usable = !!(def.heal || def.energy || def.buff);
+          const isAcc = def.kind === 'accessory';
           const describe = () => {
-            const sell = 'sell' in d && d.sell ? ` · 售价 ${d.sell} 金` : '';
-            detail.textContent = `${d.name}：${d.desc}${sell}${usable ? ' · 按确认键使用' : ''}`;
+            const sell = def.sell ? ` · 售价 ${def.sell} 金` : '';
+            const eff = def.buff ? ` · ${BUFF_TEXT[def.buff.stat](def.buff.value)}` : def.acc ? ` · ${accText(def)}` : '';
+            detail.textContent = `${def.name}：${def.desc}${eff}${sell}${usable ? ' · 按确认键使用' : isAcc ? ' · 按确认键戴上' : ''}`;
           };
           cell.addEventListener('focus', describe);
           cell.addEventListener('pointerenter', describe);
           cell.addEventListener('click', () => {
             describe();
             if (usable && consume(sc, id as ItemId)) sc.ui.panel.refresh();
+            else if (isAcc) equipAccessory(sc, id as ItemId);
           });
           grid.append(cell);
         }
@@ -56,6 +65,47 @@ function bagTab(sc: PlayScene): PanelTab {
       body.append(detail);
     },
   };
+}
+
+const ACC_TEXT: Record<AccStat, (v: number) => string> = {
+  hp: (v) => `生命 +${v}`,
+  def: (v) => `防御 +${v}`,
+  atk: (v) => `攻击 +${Math.round(v * 100)}%`,
+  speed: (v) => `移速 +${Math.round(v * 100)}%`,
+  crit: (v) => `暴击 +${Math.round(v * 100)}%`,
+  lifesteal: (v) => `吸血 ${Math.round(v * 100)}%`,
+  luck: () => '运气更好',
+  xp: (v) => `经验 +${Math.round(v * 100)}%`,
+  regen: (v) => `每秒回复 ${v} 生命`,
+  light: (v) => `视野 +${Math.round(v * 100)}%`,
+};
+
+export const accText = (d: ItemDef): string =>
+  (Object.entries(d.acc ?? {}) as [AccStat, number][]).map(([k, v]) => ACC_TEXT[k](v)).join('，');
+
+/** 戴上饰品：满两件时替换掉先戴的那件 */
+function equipAccessory(sc: PlayScene, id: ItemId): void {
+  const s = sc.s;
+  if (!removeItem(s, id, 1)) return;
+  if (s.accessories.length >= 2) {
+    const old = s.accessories.shift()!;
+    addItem(s, old, 1);
+  }
+  s.accessories.push(id);
+  s.hp = Math.min(s.hp, maxHp(s));
+  sc.sfx('equip');
+  sc.toast(`戴上了【${ITEMS[id].name}】`);
+  sc.ui.panel.refresh();
+}
+
+function unequipAccessory(sc: PlayScene, idx: number): void {
+  const s = sc.s;
+  const [id] = s.accessories.splice(idx, 1);
+  if (!id) return;
+  addItem(s, id, 1);
+  s.hp = Math.min(s.hp, maxHp(s));
+  sc.sfx('blip');
+  sc.ui.panel.refresh();
 }
 
 function gearTab(sc: PlayScene): PanelTab {
@@ -68,13 +118,71 @@ function gearTab(sc: PlayScene): PanelTab {
       const row = (k: string, v: string) => h('div', { class: 'row' }, h('span', { text: k }), h('b', { text: v }));
       const wt = WEAPON_TIERS[s.weapon.tier];
       const at = ARMOR_TIERS[s.armor.tier];
+      const type = WEAPON_TYPES[s.weaponType];
+
+      // 武器类型：三选一，阶级和强化共用
+      const types = h('div', { class: 'wtypes' });
+      for (const t of typesOf(s.cls)) {
+        const d = weaponType(t);
+        const own = s.weaponTypes.includes(t);
+        const bp = d.blueprint;
+        const btn = h('button', { type: 'button', class: `wtype${t === s.weaponType ? ' on' : ''}${own ? '' : ' off'}`, 'data-nav': '' },
+          h('b', { text: own ? weaponName(s, s.weapon.tier, t) : `${d.name}（未解锁）` }),
+          h('small', { text: own ? d.desc : `老岩那里买图纸（最深到过第 ${bp?.floor ?? 1} 层后出现），或者在矿脉宝箱里找到` }),
+        );
+        btn.addEventListener('click', () => {
+          if (!own || t === s.weaponType) return;
+          s.weaponType = t;
+          sc.player.atkCd = 0.2;
+          sc.sfx('equip');
+          sc.toast(`换上了【${weaponName(s)}】`);
+          sc.ui.panel.refresh();
+        });
+        types.append(btn);
+      }
+
+      // 饰品槽
+      const accs = h('div', { class: 'accs' });
+      for (let i = 0; i < 2; i++) {
+        const id = s.accessories[i];
+        if (!id) {
+          accs.append(h('div', { class: 'acc empty' }, h('span', { text: '空的饰品栏' }), h('small', { text: '在背包里点饰品就能戴上' })));
+          continue;
+        }
+        const d = ITEMS[id] as ItemDef;
+        const btn = h('button', { type: 'button', class: 'acc', 'data-nav': '' },
+          h('img', { src: iconUrl(itemIcon(id)), alt: '' }),
+          h('span', {}, h('b', { text: d.name }), h('small', { text: accText(d) })),
+          h('em', { text: '取下' }),
+        );
+        btn.addEventListener('click', () => unequipAccessory(sc, i));
+        accs.append(btn);
+      }
+      const spare = ITEM_IDS.filter((id) => ITEMS[id].kind === 'accessory' && count(s, id) > 0);
+      const spareRow = h('div', { class: 'grid' });
+      for (const id of spare) {
+        const cell = itemCell(itemIcon(id), ITEMS[id].name, count(s, id));
+        cell.title = `${ITEMS[id].name}：${accText(ITEMS[id] as ItemDef)}`;
+        cell.addEventListener('click', () => equipAccessory(sc, id));
+        spareRow.append(cell);
+      }
+
+      const skills = h('dl', { class: 'keys skills-list' });
+      SKILLS[s.cls].forEach((k, i) => {
+        skills.append(
+          h('dt', { text: `${['L', 'U', 'O'][i]} · ${k.name}` }),
+          h('dd', { text: s.level >= k.level ? `${k.desc}（冷却 ${k.cooldown}s，体力 ${k.cost}）` : `${k.level} 级解锁：${k.desc}` }),
+        );
+      });
+
       body.append(
         h('div', { class: 'cards' },
           h('section', { class: 'card' },
-            h('h3', { text: '武器' }),
+            h('h3', { text: `武器 · ${type.name}` }),
             h('p', { class: 'big', text: `${weaponName(s)} +${s.weapon.plus}` }),
             row('阶级', `${s.weapon.tier + 1} / ${WEAPON_TIERS.length}`),
-            row('基础攻击', String(wt.atk)),
+            row('基础攻击', `${wt.atk} × ${type.mul}`),
+            row('攻击间隔', `${type.cooldown}s`),
             row('强化', `+${s.weapon.plus} / +${MAX_PLUS}`),
           ),
           h('section', { class: 'card' },
@@ -85,16 +193,22 @@ function gearTab(sc: PlayScene): PanelTab {
             row('强化', `+${s.armor.plus} / +${MAX_PLUS}`),
           ),
           h('section', { class: 'card' },
-            h('h3', { text: `职业 · ${C.name}` }),
+            h('h3', { text: `${C.name} · Lv.${s.level}` }),
+            row('经验', s.level >= MAX_LEVEL ? '已满级' : `${s.xp} / ${xpToNext(s.level)}`),
             row('攻击力', String(attack(s))),
             row('防御力', String(defense(s))),
             row('生命上限', String(maxHp(s))),
             row('暴击率', `${Math.round(critChance(s) * 100)}%`),
-            row('技能', `${C.skill.name}（冷却 ${C.skill.cooldown}s，体力 ${C.skill.cost}）`),
           ),
         ),
-        h('p', { class: 'muted', text: C.desc }),
-        h('p', { class: 'muted', text: '去铁匠铺找老岩锻造更高阶的装备，或者用矿石强化。' }),
+        h('h3', { text: '武器类型' }),
+        types,
+        h('h3', { text: '饰品（最多两件）' }),
+        accs,
+        ...(spare.length ? [spareRow] : []),
+        h('h3', { text: '技能' }),
+        skills,
+        h('p', { class: 'muted', text: '去铁匠铺找老岩锻造更高阶的装备、强化，或者买新的武器图纸。' }),
       );
     },
   };

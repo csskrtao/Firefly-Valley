@@ -1,6 +1,6 @@
 export type Action =
   | 'up' | 'down' | 'left' | 'right'
-  | 'tool' | 'attack' | 'skill' | 'interact' | 'heal' | 'cycle'
+  | 'tool' | 'attack' | 'skill' | 'skill2' | 'skill3' | 'interact' | 'heal' | 'cycle' | 'run'
   | 'slot0' | 'slot1' | 'slot2' | 'slot3' | 'slot4'
   | 'pause' | 'inventory';
 
@@ -11,7 +11,8 @@ const KEYMAP: Record<string, Action> = {
   ArrowRight: 'right', KeyD: 'right',
   KeyJ: 'tool', Space: 'tool',
   KeyK: 'attack',
-  KeyL: 'skill',
+  KeyL: 'skill', KeyU: 'skill2', KeyO: 'skill3',
+  ShiftLeft: 'run', ShiftRight: 'run',
   KeyE: 'interact', Enter: 'interact',
   KeyQ: 'heal',
   Tab: 'cycle',
@@ -29,6 +30,8 @@ export class Input {
   private pressedSet = new Set<Action>();
   /** 为 false 时不拦截按键，让标题菜单这类 DOM 界面自己处理。 */
   enabled = false;
+  /** 触屏摇杆的方向，长度 0–1 */
+  readonly stick = { x: 0, y: 0, active: false };
 
   constructor() {
     window.addEventListener('keydown', (e) => this.onKey(e, true));
@@ -57,7 +60,64 @@ export class Input {
   press(a: Action): void { this.pressedSet.add(a); }
   hold(a: Action, on: boolean): void { if (on) this.heldSet.add(a); else this.heldSet.delete(a); }
   endFrame(): void { this.pressedSet.clear(); }
-  clear(): void { this.heldSet.clear(); this.pressedSet.clear(); }
+  clear(): void {
+    this.heldSet.clear();
+    this.pressedSet.clear();
+    this.stick.active = false;
+  }
+
+  /** 摇杆推过一半时也当作方向键按下，菜单里一样能用 */
+  private setDir(a: Action, on: boolean): void {
+    if (on && !this.heldSet.has(a)) this.pressedSet.add(a);
+    if (on) this.heldSet.add(a);
+    else this.heldSet.delete(a);
+  }
+
+  /** 绑定触屏摇杆：按下的位置为中心，拖动的方向和距离就是移动方向和速度 */
+  bindStick(el: HTMLElement): void {
+    const knob = el.querySelector<HTMLElement>('i');
+    let id = -1;
+    const st = this.stick;
+    const update = (e: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      const R = r.width * 0.38;
+      let dx = (e.clientX - (r.left + r.width / 2)) / R;
+      let dy = (e.clientY - (r.top + r.height / 2)) / R;
+      const m = Math.hypot(dx, dy);
+      if (m > 1) {
+        dx /= m;
+        dy /= m;
+      }
+      st.x = dx;
+      st.y = dy;
+      st.active = m > 0.2;
+      if (knob) knob.style.transform = `translate(${dx * R}px, ${dy * R}px)`;
+      this.setDir('left', dx < -0.5);
+      this.setDir('right', dx > 0.5);
+      this.setDir('up', dy < -0.5);
+      this.setDir('down', dy > 0.5);
+    };
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      id = -1;
+      st.x = st.y = 0;
+      st.active = false;
+      if (knob) knob.style.transform = '';
+      for (const a of ['left', 'right', 'up', 'down'] as const) this.heldSet.delete(a);
+    };
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      id = e.pointerId;
+      el.setPointerCapture?.(e.pointerId);
+      update(e);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId === id) update(e);
+    });
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+  }
 
   /** 绑定触屏按钮：data-hold 为按住型（方向键、攻击），data-press 为点按型。 */
   bindTouch(root: HTMLElement): void {
