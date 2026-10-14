@@ -10,8 +10,9 @@ import { SKILLS } from '../data/skills';
 import { defaultType, isRanged, weaponType } from '../data/weapons';
 import type { SaveData } from '../state/save';
 import { migrate, newSave } from '../state/save';
+import { decodeSave, encodeSave } from '../state/saveCode';
 import { dateText } from '../systems/time';
-import { renderHelp, renderSettings } from '../ui/common';
+import { renderHelp, renderSaveCode, renderSettings } from '../ui/common';
 import { $, NavList, h } from '../ui/dom';
 import type { App } from './App';
 
@@ -99,6 +100,7 @@ export class TitleScene implements Scene {
         last ? this.button('继续游戏', () => this.app.play(last), this.summary(last)) : null,
         this.button('新游戏', () => this.showSlots('new')),
         any ? this.button('读取存档', () => this.showSlots('load')) : null,
+        this.button('导入存档码', () => this.showImport(), '从别的设备或备份里恢复进度'),
         this.button('设置', () => this.page('设置', () => this.showMain(), this.panel(renderSettings))),
         this.button('操作说明', () => this.page('操作说明', () => this.showMain(), this.panel(renderHelp))),
       ),
@@ -122,6 +124,7 @@ export class TitleScene implements Scene {
           continue;
         }
         const row = h('div', { class: 'slot-row' }, this.button(label, () => this.app.play(s), this.summary(s)));
+        row.append(this.button('存档码', () => this.page(`${label} 的存档码`, () => this.showSlots('load'), this.panel((b) => renderSaveCode(b, encodeSave(s)))), undefined, 'small'));
         const del = this.button('删除', () => {
           if (del.dataset.armed) {
             storage.remove(slotKey(i));
@@ -139,6 +142,43 @@ export class TitleScene implements Scene {
       }
     }
     this.page(mode === 'new' ? '选择存档位置' : '读取存档', () => this.showMain(), rows);
+  }
+
+  /** 粘贴存档码，选一个存档位导入；存档位有存档时要再按一次确认覆盖 */
+  private showImport(): void {
+    const box = h('textarea', { class: 'code-box', rows: '5', spellcheck: 'false', placeholder: '把存档码粘贴到这里（以 FV1: 开头）', 'aria-label': '存档码' });
+    const msg = h('p', { class: 'muted', text: '粘贴以后选一个存档位导入。' });
+    box.addEventListener('input', () => {
+      msg.textContent = '粘贴以后选一个存档位导入。';
+      msg.className = 'muted';
+    });
+    const rows = h('div', { class: 'menu slots' });
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      const old = loadSlot(i);
+      const btn = this.button(`导入到存档 ${i + 1}`, () => {
+        const s = decodeSave(box.value);
+        if (!s) {
+          msg.textContent = '存档码不对，检查一下是不是复制完整了。';
+          msg.className = 'muted bad';
+          return;
+        }
+        if (old && !btn.dataset.armed) {
+          btn.dataset.armed = '1';
+          btn.querySelector('span')!.textContent = '再按一次覆盖';
+          return;
+        }
+        s.slot = i;
+        if (!storage.set(slotKey(i), s)) {
+          msg.textContent = '导入失败：浏览器不允许保存数据。';
+          msg.className = 'muted bad';
+          return;
+        }
+        audio.sfx('levelup');
+        this.showSlots('load');
+      }, old ? `会覆盖：${this.summary(old)}` : '空存档', old ? 'danger' : '');
+      rows.append(btn);
+    }
+    this.page('导入存档码', () => this.showMain(), this.panel((b) => b.append(box, msg)), rows);
   }
 
   private confirmOverwrite(slot: number, s: SaveData): void {

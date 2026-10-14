@@ -12,13 +12,14 @@ import { NPCS, NPC_IDS } from '../../data/npcs';
 import { QUESTS } from '../../data/quests';
 import { iconUrl, itemIcon } from '../../gfx/tiles';
 import { bagGear, bagUsed, count, removeItem } from '../../state/save';
+import { encodeSave } from '../../state/saveCode';
 import {
   bagCells, canWear, equip, equipped, equippedSlot, expandBag, expandCost, gearById, gearLabel, inStash, salvage, salvageUpTo, salvageValue, sortBag, unequip,
 } from '../../systems/gear';
 import { hearts, MAX_HEARTS } from '../../systems/friendship';
 import * as quests from '../../systems/quests';
 import { attack, critChance, defense, maxHp, weaponTypeOf } from '../../systems/stats';
-import { renderHelp, renderSettings } from '../../ui/common';
+import { renderHelp, renderSaveCode, renderSettings } from '../../ui/common';
 import { h } from '../../ui/dom';
 import type { PanelTab } from '../../ui/UI';
 import type { PlayScene } from '../PlayScene';
@@ -353,6 +354,10 @@ export function openPause(sc: PlayScene): void {
           const ok = sc.saveGame();
           sc.toast(ok ? '已存档。读档后会从家门口出发。' : '存档失败：浏览器不允许保存数据');
         }, '睡觉时也会自动存档'),
+        btn('存档码', () => {
+          sc.saveGame();
+          sc.ui.panel.show('存档码', [{ id: 'code', label: '存档码', render: (b2) => renderSaveCode(b2, encodeSave(sc.s)) }], { onClose: () => openPause(sc) });
+        }, '换设备、换浏览器或者备份时用'),
         btn('设置', () => sc.ui.panel.show('设置', [{ id: 'settings', label: '设置', render: (b2) => renderSettings(b2, () => sc.applySettings()) }], { onClose: () => openPause(sc) })),
         btn('操作说明', () => sc.ui.panel.show('操作说明', [{ id: 'help', label: '操作', render: renderHelp }], { onClose: () => openPause(sc) })),
         btn('回到标题画面', () => {

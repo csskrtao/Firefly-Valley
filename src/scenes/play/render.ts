@@ -1,5 +1,5 @@
 import { TS, VH, VW } from '../../core/constants';
-import { TAU, hash, rnd } from '../../core/math';
+import { TAU, hash, rnd, wrap } from '../../core/math';
 import type { CropId } from '../../data/crops';
 import { CROPS } from '../../data/crops';
 import { floorName, zoneFor } from '../../data/floors';
@@ -25,9 +25,8 @@ import type { PlayScene } from '../PlayScene';
 import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
 import { drawExplore, exploreHighlight, exploreLights } from './explore';
 
+/** 光照层，大小跟着视野变 */
 const dark = document.createElement('canvas');
-dark.width = VW;
-dark.height = VH;
 const dk = dark.getContext('2d')!;
 
 export function renderPlay(sc: PlayScene): void {
@@ -644,7 +643,8 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
   b.beginPath(); b.arc(ox, oy, rr + 3, a0 + (a1 - a0) * 0.5, a1); b.stroke();
 }
 
-const drops = Array.from({ length: 90 }, () => ({ x: Math.random() * VW, y: Math.random() * VH, s: 0.6 + Math.random() * 0.6 }));
+// 位置取得比视野大，画的时候按当前视野取模，竖屏视野变高也能铺满
+const drops = Array.from({ length: 120 }, () => ({ x: Math.random() * 1000, y: Math.random() * 1000, s: 0.6 + Math.random() * 0.6 }));
 
 function drawWeather(sc: PlayScene): void {
   const { b } = sc.game.renderer;
@@ -658,8 +658,8 @@ function drawWeather(sc: PlayScene): void {
     b.lineWidth = 1;
     b.beginPath();
     for (const d of drops) {
-      const y = (d.y + t * 260 * d.s) % VH;
-      const x = (d.x - t * 40 * d.s + VW * 4) % VW;
+      const y = wrap(d.y + t * 260 * d.s, VH);
+      const x = wrap(d.x - t * 40 * d.s, VW);
       b.moveTo(x, y);
       b.lineTo(x - 2, y + 6);
     }
@@ -667,8 +667,8 @@ function drawWeather(sc: PlayScene): void {
   } else {
     b.fillStyle = 'rgba(255,255,255,.85)';
     for (const d of drops) {
-      const y = (d.y + t * 30 * d.s) % VH;
-      const x = (d.x + Math.sin(t + d.y) * 8 + VW) % VW;
+      const y = wrap(d.y + t * 30 * d.s, VH);
+      const x = wrap(d.x + Math.sin(t + d.y) * 8, VW);
       b.fillRect(Math.round(x), Math.round(y), 2, 2);
     }
   }
@@ -680,6 +680,10 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
   if (sc.mode === 'mine') a = 0.6 + Math.min(0.15, sc.floor * 0.012);
   else a = nightAlpha(sc.s.time);
   if (a <= 0) return;
+  if (dark.width !== VW || dark.height !== VH) {
+    dark.width = VW;
+    dark.height = VH;
+  }
   dk.globalCompositeOperation = 'source-over';
   dk.clearRect(0, 0, VW, VH);
   dk.fillStyle = `rgba(10,6,24,${a})`;
