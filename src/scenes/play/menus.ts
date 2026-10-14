@@ -21,6 +21,7 @@ import type { PanelTab } from '../../ui/UI';
 import { itemCell } from '../../ui/UI';
 import type { PlayScene } from '../PlayScene';
 import { consume } from './actions';
+import { bookTab } from './explore';
 
 const KIND_ORDER: ItemKind[] = ['consumable', 'dish', 'crop', 'forage', 'seed', 'accessory', 'ore', 'material', 'key'];
 const KIND_NAME: Record<ItemKind, string> = {
@@ -281,7 +282,7 @@ function questTab(sc: PlayScene): PanelTab {
 
 export function openInventory(sc: PlayScene, tab = 'bag'): void {
   sc.sfx('select');
-  sc.ui.panel.show('背包', [bagTab(sc), gearTab(sc), peopleTab(sc), questTab(sc)], { tab });
+  sc.ui.panel.show('背包', [bagTab(sc), gearTab(sc), peopleTab(sc), questTab(sc), bookTab(sc)], { tab });
 }
 
 export function openPause(sc: PlayScene): void {
