@@ -128,7 +128,7 @@ function itemDetail(sc: PlayScene, id: ItemId): HTMLElement {
 }
 
 const KIND_NAME: Record<ItemKind, string> = {
-  consumable: '药品', dish: '料理', crop: '作物', forage: '采集物', seed: '种子', accessory: '饰品', ore: '矿石', material: '怪物素材', key: '重要物品',
+  consumable: '药品', dish: '料理', crop: '作物', forage: '采集物', seed: '种子', accessory: '饰品', ore: '矿石', material: '怪物素材', build: '建材', key: '重要物品',
 };
 
 function bagTab(sc: PlayScene): PanelTab {

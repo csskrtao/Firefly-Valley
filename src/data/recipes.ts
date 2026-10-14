@@ -3,6 +3,8 @@ import type { ItemId } from './items';
 export interface Recipe {
   dish: ItemId;
   needs: Partial<Record<ItemId, number>>;
+  /** 需要的房子等级（厨房），缺省为 0 */
+  kitchen?: number;
 }
 
 /** 在家里的灶台上做饭：作物、采集物组合成料理 */
@@ -17,4 +19,9 @@ export const RECIPES: Recipe[] = [
   { dish: 'bar', needs: { hazelnut: 2, dandelion: 1 } },
   { dish: 'stew', needs: { winterRoot: 2, yam: 1 } },
   { dish: 'tea', needs: { fireflower: 1, dandelion: 1 } },
+  { dish: 'friedEgg', needs: { egg: 1 } },
+  { dish: 'eggYam', needs: { yam: 1, egg: 2 }, kitchen: 1 },
+  { dish: 'cake', needs: { berry: 2, egg: 2 }, kitchen: 1 },
+  { dish: 'pudding', needs: { crystalFruit: 1, egg: 2 }, kitchen: 2 },
+  { dish: 'feast', needs: { pumpkin: 1, melon: 1, egg: 3 }, kitchen: 2 },
 ];

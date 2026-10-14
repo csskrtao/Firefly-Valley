@@ -211,7 +211,7 @@ export function unlockWeaponType(s: SaveData, wt: WeaponTypeId): Gear | null {
 
 export type BagCell = { kind: 'gear'; g: Gear } | { kind: 'item'; id: ItemId; n: number };
 
-const KIND_ORDER = ['consumable', 'dish', 'crop', 'forage', 'seed', 'ore', 'material', 'key'];
+const KIND_ORDER = ['consumable', 'dish', 'crop', 'forage', 'seed', 'ore', 'material', 'build', 'key'];
 
 /** 背包格子：装备一件一格，物品每 99 个一格，重要物品排在最后、不占格子 */
 export function bagCells(s: SaveData): BagCell[] {

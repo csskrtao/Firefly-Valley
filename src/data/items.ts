@@ -1,10 +1,10 @@
-export type ItemKind = 'seed' | 'crop' | 'forage' | 'dish' | 'ore' | 'material' | 'consumable' | 'accessory' | 'key';
+export type ItemKind = 'seed' | 'crop' | 'forage' | 'dish' | 'ore' | 'material' | 'consumable' | 'accessory' | 'key' | 'build';
 
 /** 料理和饰品能提供的属性 */
 export type BuffStat = 'atk' | 'def' | 'speed' | 'crit' | 'regen' | 'light';
 export type AccStat = 'hp' | 'def' | 'atk' | 'speed' | 'crit' | 'lifesteal' | 'luck' | 'xp' | 'regen' | 'light';
 export type ForageArea = 'forest' | 'meadow' | 'beach';
-export type Glyph = 'plant' | 'shell' | 'mushroom' | 'nut' | 'crystal' | 'flower';
+export type Glyph = 'plant' | 'shell' | 'mushroom' | 'nut' | 'crystal' | 'flower' | 'log';
 
 /** 效果的说明文字 */
 export const BUFF_TEXT: Record<BuffStat, (v: number) => string> = {
@@ -37,6 +37,8 @@ export interface ItemDef {
   buff?: { stat: BuffStat; value: number; minutes: number };
   /** 饰品的属性 */
   acc?: Partial<Record<AccStat, number>>;
+  /** 建材里能摆到农场上的东西，对应 data/buildings.ts 里的建筑 id */
+  place?: string;
 }
 
 export const ITEMS = {
@@ -54,6 +56,7 @@ export const ITEMS = {
   melon: { name: '星瓜', kind: 'crop', desc: '瓜皮上有星星一样的斑点。', color: '#ffd34d', sell: 260, heal: 40, energy: 30 },
   yam: { name: '铁根薯', kind: 'crop', desc: '硬得像铁，煮熟了很香。', color: '#9a7a5a', sell: 150, heal: 20, energy: 40 },
   pumpkin: { name: '月南瓜', kind: 'crop', desc: '圆得像满月。', color: '#f0a040', sell: 380, heal: 50, energy: 50 },
+  egg: { name: '鸡蛋', kind: 'crop', desc: '鸡舍里捡的新鲜鸡蛋，做菜用得上。', color: '#f4ead0', sell: 45, heal: 10, energy: 15 },
   // 采集物
   leek: { name: '野葱', kind: 'forage', desc: '春天草地上的野葱，闻起来很冲。', color: '#9fd86a', sell: 30, heal: 8, energy: 15, seasons: [0], areas: ['meadow'], glyph: 'plant' },
   dandelion: { name: '蒲公英', kind: 'forage', desc: '可以泡茶，也可以许愿。', color: '#ffe066', sell: 25, heal: 5, energy: 10, seasons: [0, 1], areas: ['meadow', 'forest'], glyph: 'flower' },
@@ -76,6 +79,11 @@ export const ITEMS = {
   bar: { name: '榛子能量棒', kind: 'dish', desc: '冒险者的口粮。', color: '#a8783a', sell: 140, energy: 70, buff: { stat: 'crit', value: 0.1, minutes: 240 } },
   stew: { name: '冬根暖汤', kind: 'dish', desc: '冬天里最暖和的一碗汤。', color: '#c8a070', sell: 240, heal: 80, energy: 50, buff: { stat: 'regen', value: 2, minutes: 240 } },
   tea: { name: '萤火花茶', kind: 'dish', desc: '喝下去眼睛亮亮的，矿里也看得更清楚。', color: '#c8ff7a', sell: 160, energy: 60, buff: { stat: 'light', value: 0.5, minutes: 300 } },
+  friedEgg: { name: '荷包蛋', kind: 'dish', desc: '最简单的早饭。', color: '#ffe9a0', sell: 80, heal: 35, energy: 35, buff: { stat: 'def', value: 2, minutes: 240 } },
+  eggYam: { name: '铁根薯烩蛋', kind: 'dish', desc: '石屋的大灶才炖得出来，吃完浑身结实。', color: '#c9a070', sell: 280, heal: 80, energy: 60, buff: { stat: 'def', value: 5, minutes: 300 } },
+  cake: { name: '光莓蛋糕', kind: 'dish', desc: '石屋的烤箱烤的蛋糕，夜里会微微发光。', color: '#9ff0e0', sell: 360, heal: 100, energy: 40, buff: { stat: 'regen', value: 2.5, minutes: 300 } },
+  pudding: { name: '冰晶布丁', kind: 'dish', desc: '大宅的厨房才做得出来的点心，凉得透亮。', color: '#bff0ff', sell: 420, heal: 60, energy: 80, buff: { stat: 'crit', value: 0.18, minutes: 300 } },
+  feast: { name: '丰收宴', kind: 'dish', desc: '大宅里摆满一桌的大餐，吃完能打穿一整层矿。', color: '#ffb86b', sell: 900, heal: 200, energy: 100, buff: { stat: 'atk', value: 0.3, minutes: 360 } },
   // 矿石
   copper: { name: '铜矿', kind: 'ore', desc: '苔藓矿道里常见的矿石。', color: '#e8894a', sell: 15 },
   iron: { name: '铁矿', kind: 'ore', desc: '锻造铁器的原料。', color: '#c9d4e0', sell: 30 },
@@ -118,6 +126,19 @@ export const ITEMS = {
   emberCharm: { name: '余烬护符', kind: 'accessory', desc: '火盆里一直没熄的火星，握着手心发热。', color: '#ff8a3a', sell: 260, acc: { atk: 0.08, light: 0.2 } },
   travelerPin: { name: '旅人别针', kind: 'accessory', desc: '绕了一大圈才拿到的别针，走远路也不累。', color: '#3f8f7a', sell: 220, acc: { speed: 0.08, regen: 0.3 } },
   compass: { name: '寻宝罗盘', kind: 'accessory', desc: '收集册的宝藏页集齐后得到的罗盘。挖宝更容易多得，也更容易挖到藏宝图。', color: '#ffcf5a', sell: 500, acc: { luck: 1, speed: 0.05 } },
+  // 建材：盖房子、造设施用。木材在地上捡或者找薇拉买，石料用镐敲地上的石头或者挖矿时顺带得到，锭在熔炉里炼
+  wood: { name: '木材', kind: 'build', desc: '林子和草地上捡到的木头，也可以在杂货店买。盖房子、造设施都要用。', color: '#a8743a', buy: 12, sell: 4, seasons: [0, 1, 2, 3], glyph: 'log' },
+  stone: { name: '石料', kind: 'build', desc: '用镐敲碎地上的石头，或者在矿里挖矿时顺带得到。', color: '#a9a39b', sell: 3 },
+  copperBar: { name: '铜锭', kind: 'build', desc: '熔炉里炼出来的铜锭。', color: '#e8894a', sell: 90 },
+  ironBar: { name: '铁锭', kind: 'build', desc: '熔炉里炼出来的铁锭。', color: '#c9d4e0', sell: 180 },
+  goldBar: { name: '金锭', kind: 'build', desc: '熔炉里炼出来的金锭。', color: '#ffd34d', sell: 360 },
+  // 能摆到农场上的东西（工作台做出来，从家里的“家园建造”摆放）
+  sprinkler: { name: '洒水器', kind: 'build', desc: '摆在田里，每天早上给上下左右 4 格浇水。', color: '#7fb0e8', place: 'sprinkler' },
+  qualitySprinkler: { name: '优质洒水器', kind: 'build', desc: '摆在田里，每天早上给周围 8 格浇水。', color: '#62f0d6', place: 'qualitySprinkler' },
+  fenceKit: { name: '木篱笆', kind: 'build', desc: '一段木篱笆。装饰，舒适度 +1。', color: '#c99a5a', place: 'fence' },
+  flowerBed: { name: '花坛', kind: 'build', desc: '种满花的小花坛。装饰，舒适度 +2。', color: '#ff8fb3', place: 'flowerBed' },
+  bench: { name: '木长椅', kind: 'build', desc: '坐着看日落。装饰，舒适度 +2。', color: '#8a6038', place: 'bench' },
+  lantern: { name: '萤石灯', kind: 'build', desc: '里面嵌着萤石的灯，晚上会亮。装饰，舒适度 +3。', color: '#62f0d6', place: 'lantern' },
 } satisfies Record<string, ItemDef>;
 
 export type ItemId = keyof typeof ITEMS;

@@ -7,6 +7,8 @@ import { EQUIP_SLOTS, MAX_GEAR_TIER, MAX_QUALITY, slotsFor } from '../data/gear'
 import { MAX_PLUS } from '../data/equipment';
 import type { BuffStat, ItemId } from '../data/items';
 import { ITEMS } from '../data/items';
+import type { HomeState } from '../data/buildings';
+import { newHome } from '../data/buildings';
 import type { BossId, MonsterId } from '../data/monsters';
 import type { NpcId } from '../data/npcs';
 import { NPC_IDS } from '../data/npcs';
@@ -53,6 +55,8 @@ export interface FoodBuff {
   value: number;
   until: number;
   from: ItemId;
+  /** 不是料理带来的效果（比如家里睡得香）时显示的名字 */
+  label?: string;
 }
 
 export interface SaveData {
@@ -100,6 +104,8 @@ export interface SaveData {
   /** 户外探险：挖宝点、藏宝图、隐藏宝箱、随机事件和收集册 */
   explore: ExploreState;
   tip: number;
+  /** 家园：房子等级、农场上的设施和装饰、温室、鸡舍 */
+  home: HomeState;
   playTime: number;
   savedAt: number;
   /** 去过的地面区域：世界地图上会亮起来，可以快速旅行过去 */
@@ -146,6 +152,7 @@ export function newSave(slot: number, cls: ClassId): SaveData {
     perks: [],
     explore: newExplore(),
     tip: 0,
+    home: newHome(),
     playTime: 0,
     savedAt: Date.now(),
     regions: ['town'],
@@ -178,6 +185,7 @@ export function migrate(raw: unknown): SaveData | null {
   merged.weaponTypes = [...new Set([defaultType(r.cls), ...own])];
   if (!merged.weaponTypes.includes(merged.weaponType)) merged.weaponType = defaultType(r.cls);
   merged.forage = { ...r.forage };
+  merged.home = { ...base.home, ...r.home };
   merged.explore = { ...base.explore, ...r.explore };
   merged.level = Math.max(1, r.level ?? 1);
   if ((r.version ?? 1) < 3 && r.field) {

@@ -38,13 +38,15 @@ export const Tile = {
   PILLAR: 30,
   /** 萤石路标：每个野外区域的快速旅行点 */
   WAYSTONE: 31,
+  /** 玩家在农场上盖的设施和摆的装饰 */
+  BUILT: 32,
 } as const;
 
 export type TileId = (typeof Tile)[keyof typeof Tile];
 
 const SOLID = new Set<number>([
   Tile.WATER, Tile.TREE, Tile.WALL, Tile.DOOR, Tile.FENCE, Tile.CAVE, Tile.ROCK, Tile.BIN, Tile.FOUNTAIN, Tile.CLIFF,
-  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH, Tile.PILLAR, Tile.WAYSTONE,
+  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH, Tile.PILLAR, Tile.WAYSTONE, Tile.BUILT,
 ]);
 
 export const isSolidTile = (t: number): boolean => SOLID.has(t);
