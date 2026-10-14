@@ -8,6 +8,7 @@ import { count, newSave, owns } from '../src/state/save';
 import { applyDishBuff, canCook, cook } from '../src/systems/cooking';
 import { FORAGE_CAP, forageFor, pickForage, spawnForage } from '../src/systems/forage';
 import { MAX_LEVEL, gainXp, xpToNext } from '../src/systems/level';
+import { equip, unlockWeaponType } from '../src/systems/gear';
 import { applyLoot, blueprintsFor, rollChest } from '../src/systems/loot';
 import { attack, maxHp } from '../src/systems/stats';
 
@@ -42,9 +43,10 @@ describe('weapons and skills', () => {
   it('changes attack with the weapon type', () => {
     const s = newSave(0, 'warrior');
     const sword = attack(s);
-    s.weaponType = 'axe';
+    const axe = unlockWeaponType(s, 'axe')!;
+    equip(s, axe.id);
     expect(attack(s)).toBeGreaterThan(sword);
-    s.weaponType = defaultType('warrior');
+    equip(s, s.gear.find((g) => g.wt === defaultType('warrior'))!.id);
     expect(attack(s)).toBe(sword);
   });
 });

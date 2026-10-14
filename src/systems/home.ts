@@ -34,8 +34,13 @@ export function costText(c: HomeCost): string {
 
 export const houseOf = (s: SaveData): HouseDef => HOUSES[Math.min(s.home.house, MAX_HOUSE)];
 export const nextHouse = (s: SaveData): HouseDef | null => (s.home.house < MAX_HOUSE ? HOUSES[s.home.house + 1] : null);
-/** 仓库箱的格子数（仓库箱本身由背包那条线来做） */
+/** 这一级房子的仓库箱格子数 */
 export const storageSlots = (s: SaveData): number => houseOf(s).storage;
+
+/** 仓库箱跟着房子变大（只会变大，不会缩小） */
+export function syncStash(s: SaveData): void {
+  s.stash.size = Math.max(s.stash.size, storageSlots(s));
+}
 export const lateEnergy = (s: SaveData): number => houseOf(s).lateEnergy;
 
 export type UpgradeResult = 'ok' | 'max' | 'cost';
@@ -45,6 +50,7 @@ export function upgradeHouse(s: SaveData): UpgradeResult {
   if (!next?.cost) return 'max';
   if (!pay(s, next.cost)) return 'cost';
   s.home.house++;
+  syncStash(s);
   return 'ok';
 }
 
@@ -278,7 +284,8 @@ export function spawnWood(s: SaveData, spots: [number, number][], rand: () => nu
   if (s.home.woodDay === s.day) return 0;
   s.home.woodDay = s.day;
   if (!spots.length) return 0;
-  let have = Object.values(s.forage).filter((id) => id === 'wood').length;
+  // 野外区域的采集物键带着区域前缀，这里只数小镇的
+  let have = Object.entries(s.forage).filter(([k, id]) => id === 'wood' && !k.includes(':')).length;
   let added = 0;
   for (let i = 0; i < WOOD_DAILY && have < WOOD_CAP; i++) {
     for (let tries = 0; tries < 20; tries++) {

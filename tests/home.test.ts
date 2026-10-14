@@ -11,6 +11,8 @@ import { Tile } from '../src/world/TileMap';
 const rich = (cls: 'warrior' = 'warrior') => {
   const s = newSave(0, cls);
   s.gold = 100000;
+  // 背包现在有格子上限，测试里放大一点，免得材料被送进仓库箱
+  s.bagSize = 200;
   for (const id of ['wood', 'stone', 'copper', 'iron', 'gold', 'copperBar', 'ironBar', 'goldBar', 'glowstone'] as const) addItem(s, id, 200);
   return s;
 };
@@ -18,14 +20,16 @@ const rich = (cls: 'warrior' = 'warrior') => {
 describe('house upgrades', () => {
   it('goes wood → stone → manor and stops there', () => {
     const s = rich();
-    expect(home.storageSlots(s)).toBe(24);
+    expect(home.storageSlots(s)).toBe(s.stash.size);
     expect(home.upgradeHouse(s)).toBe('ok');
     expect(home.houseOf(s).name).toBe('石屋');
-    expect(home.storageSlots(s)).toBe(48);
+    expect(home.storageSlots(s)).toBe(72);
+    expect(s.stash.size).toBe(72);
     expect(home.upgradeHouse(s)).toBe('ok');
     expect(home.houseOf(s).name).toBe('大宅');
     expect(home.upgradeHouse(s)).toBe('max');
     expect(home.lateEnergy(s)).toBe(100);
+    expect(s.stash.size).toBe(96);
   });
 
   it('refuses without materials and takes nothing', () => {

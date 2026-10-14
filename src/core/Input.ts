@@ -2,7 +2,7 @@ export type Action =
   | 'up' | 'down' | 'left' | 'right'
   | 'tool' | 'attack' | 'skill' | 'skill2' | 'skill3' | 'interact' | 'heal' | 'cycle' | 'run'
   | 'slot0' | 'slot1' | 'slot2' | 'slot3' | 'slot4'
-  | 'pause' | 'inventory';
+  | 'pause' | 'inventory' | 'map';
 
 const KEYMAP: Record<string, Action> = {
   ArrowUp: 'up', KeyW: 'up',
@@ -19,6 +19,7 @@ const KEYMAP: Record<string, Action> = {
   Digit1: 'slot0', Digit2: 'slot1', Digit3: 'slot2', Digit4: 'slot3', Digit5: 'slot4',
   Escape: 'pause', KeyP: 'pause',
   KeyI: 'inventory', KeyB: 'inventory',
+  KeyM: 'map',
 };
 
 /**
@@ -48,6 +49,8 @@ export class Input {
     }
     if (!this.enabled) return;
     const target = e.target as HTMLElement | null;
+    // 在文本框里打字（比如粘贴存档码）时不抢按键，只留 Esc 用来返回
+    if ((target?.tagName === 'TEXTAREA' || (target?.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text')) && action !== 'pause') return;
     // 设置面板里获得焦点的滑块需要左右键，不抢
     if (target?.tagName === 'INPUT' && (action === 'left' || action === 'right')) return;
     e.preventDefault();

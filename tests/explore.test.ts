@@ -153,7 +153,7 @@ describe('hidden chests and events', () => {
     const s = newSave(0, 'warrior');
     const loot = ex.openHidden(s, 'boulder')!;
     expect(loot.items.bronzeAmulet).toBe(1);
-    expect(s.inv.bronzeAmulet).toBe(1);
+    expect(s.gear.some((g) => g.acc === 'bronzeAmulet')).toBe(true); // 饰品拿到时会变成装备
     expect(ex.openHidden(s, 'boulder')).toBeNull();
   });
 

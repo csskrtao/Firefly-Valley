@@ -18,7 +18,7 @@ export interface HouseDef {
   roof: string;
   /** 房子占几格宽（高度不变，门的位置不变） */
   w: number;
-  /** 仓库箱的格子数，给背包和仓库那条线用 */
+  /** 仓库箱的格子数 */
   storage: number;
   /** 熬过半夜才睡时，第二天早上恢复的体力 */
   lateEnergy: number;
@@ -28,17 +28,17 @@ export interface HouseDef {
 
 export const HOUSES: HouseDef[] = [
   {
-    name: '木屋', desc: '祖母留下的旧木屋。', wall: '#e3c9a0', roof: '#b84a3a', w: 6, storage: 24, lateEnergy: 70, comfort: 0,
+    name: '木屋', desc: '祖母留下的旧木屋。', wall: '#e3c9a0', roof: '#b84a3a', w: 6, storage: 48, lateEnergy: 70, comfort: 0,
   },
   {
     name: '石屋', desc: '石墙加厚，灶台换成大灶，能做更多菜。熬夜后恢复更多体力，仓库更大。',
     cost: { gold: 2000, items: { wood: 30, stone: 40, copperBar: 5 } },
-    wall: '#bdb4a6', roof: '#4f6a8a', w: 6, storage: 48, lateEnergy: 85, comfort: 4,
+    wall: '#bdb4a6', roof: '#4f6a8a', w: 6, storage: 72, lateEnergy: 85, comfort: 4,
   },
   {
     name: '大宅', desc: '加盖了东边的厢房，厨房什么菜都能做。熬夜也能睡饱，仓库最大。',
     cost: { gold: 8000, items: { wood: 60, stone: 80, ironBar: 10, goldBar: 3 } },
-    wall: '#f0e4cc', roof: '#7a3a4a', w: 8, storage: 72, lateEnergy: 100, comfort: 8,
+    wall: '#f0e4cc', roof: '#7a3a4a', w: 8, storage: 96, lateEnergy: 100, comfort: 8,
   },
 ];
 

@@ -25,7 +25,6 @@ import type { SaveData } from '../state/save';
 import { count, seasonOf } from '../state/save';
 import { advanceDay } from '../systems/farming';
 import * as quests from '../systems/quests';
-import { spawnForage } from '../systems/forage';
 import { xpToNext } from '../systems/level';
 import { classOf, maxHp, moveSpeed, regenRate } from '../systems/stats';
 import { SKILLS } from '../data/skills';
@@ -35,6 +34,11 @@ import type { FloorLayout } from '../world/mineGen';
 import { generateFloor } from '../world/mineGen';
 import type { Overworld } from '../world/overworld';
 import { buildOverworld } from '../world/overworld';
+import type { RegionId } from '../world/regions/defs';
+import { OPPOSITE, REGIONS } from '../world/regions/defs';
+import type { RegionExit, RegionLayout } from '../world/regions/layout';
+import { arrivalAt, exitAt, exitCells, townLayout, wildLayout } from '../world/regions/layout';
+import { lockReason, markVisited, TRAVEL_MINUTES } from '../systems/regions';
 import type { TileMap } from '../world/TileMap';
 import { Tile } from '../world/TileMap';
 import type { App } from './App';
@@ -48,8 +52,11 @@ import { lateEnergy } from '../systems/home';
 import { ExploreWorld, enterOutdoor, exploreBlocked, exploreDay, updateOutdoor } from './play/explore';
 import { openInventory, openPause } from './play/menus';
 import { renderPlay } from './play/render';
+import { nearRegionBoss, populateRegion, spawnAllForage, updateRegion } from './play/regions';
+import { openWorldMap } from './play/worldmap';
 
-export type Mode = 'town' | 'mine';
+/** town 是萤石镇，wild 是其他地面区域，mine 是矿脉 */
+export type Mode = 'town' | 'wild' | 'mine';
 
 export interface Chest {
   tx: number;
@@ -72,15 +79,21 @@ const SEASON_GREETING = [
   '冬天到了，地里什么都长不了。正好专心下矿，把装备打好。',
 ];
 
-/** 游戏本体：地表小镇和矿脉都在这个场景里，靠 mode 区分 */
+/** 游戏本体：地面上的各个区域和矿脉都在这个场景里，靠 mode 和 region 区分 */
 export class PlayScene implements Scene, EnemyHost {
   readonly player = new Player();
   readonly camera = new Camera();
   readonly fx = new Fx();
   readonly overworld: Overworld = buildOverworld();
-  /** 户外探险：挖宝点、隐藏宝箱、户外怪物和随机事件 */
+  readonly townArea: RegionLayout = townLayout(this.overworld);
+  /** 户外探险：挖宝点、隐藏宝箱、户外怪物和随机事件（目前都在萤石镇） */
   readonly explore = new ExploreWorld(this.overworld);
   mode: Mode = 'town';
+  /** 当前（或者下矿之前所在）的地面区域 */
+  region: RegionId = 'town';
+  area: RegionLayout = this.townArea;
+  /** 还没开放的路口占的格子，键为 "x,y" */
+  barriers = new Map<string, { target: RegionId; hint: string }>();
   floor = 0;
   map: TileMap = this.overworld.map;
   layout: FloorLayout | null = null;
@@ -98,6 +111,9 @@ export class PlayScene implements Scene, EnemyHost {
   clock = 0;
   /** 进入新楼层时屏幕中央的楼层名，剩余显示时间 */
   floorBanner = 0;
+  /** 横幅上的文字：矿脉楼层名或者区域名 */
+  bannerText = '';
+  private lockToast = { at: -99, target: '' };
   private pendingIntro: { who: string; text: string; face?: Img } | null = null;
   private lastTile = '';
   private collapsing = false;
@@ -109,6 +125,8 @@ export class PlayScene implements Scene, EnemyHost {
   get maxHp(): number { return maxHp(this.s); }
   get mapW(): number { return this.map.w * TS; }
   get mapH(): number { return this.map.h * TS; }
+  /** 怪物强度：矿脉里是楼层，地面上是区域的强度 */
+  get danger(): number { return this.mode === 'mine' ? this.floor : REGIONS[this.region].tier; }
 
   /* ---------- 场景生命周期 ---------- */
 
@@ -120,7 +138,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.applySettings();
     this.s.hp = Math.min(this.s.hp, this.maxHp);
     enterHome(this);
-    if (this.s.forageDay !== this.s.day) spawnForage(this.s, this.overworld.forage);
+    if (this.s.forageDay !== this.s.day) spawnAllForage(this.s, this.townArea);
     exploreDay(this);
     this.enterTown(this.overworld.spawns.home, 1);
     if (this.s.playTime === 0) {
@@ -153,6 +171,10 @@ export class PlayScene implements Scene, EnemyHost {
     const wasModal = this.ui.modal;
     this.ui.update(dt, input);
     this.updateHud();
+    if (this.s.mailed) {
+      this.s.mailed = 0;
+      this.toast('背包满了，多出来的东西送回了家里的仓库箱');
+    }
     if (wasModal || this.ui.modal || this.ui.fade.busy) return;
     if (this.pendingIntro) {
       const { who, text, face } = this.pendingIntro;
@@ -164,6 +186,7 @@ export class PlayScene implements Scene, EnemyHost {
     if (this.placing && input.pressed('pause')) return cancelPlacing(this);
     if (input.pressed('pause')) return openPause(this);
     if (input.pressed('inventory')) return openInventory(this);
+    if (input.pressed('map')) return openWorldMap(this);
 
     const s = this.s;
     s.playTime += dt;
@@ -184,6 +207,10 @@ export class PlayScene implements Scene, EnemyHost {
       pickupForage(this);
       updateOutdoor(this, dt);
     } else {
+      if (this.mode === 'wild') {
+        pickupForage(this);
+        updateRegion(this);
+      }
       for (const e of this.enemies.slice()) e.update(this, dt);
       combat.updateCombat(this, dt);
       combat.updateShots(this, dt);
@@ -259,8 +286,10 @@ export class PlayScene implements Scene, EnemyHost {
       if (input.pressed('interact')) interact(this);
     }
 
-    // 第一次站上楼梯时提示一下
     const [ux, uy] = p.tile();
+    if (this.mode !== 'mine') this.checkExits(ux, uy, mag > 0.2);
+
+    // 第一次站上楼梯时提示一下
     const key = `${this.mode}${this.floor}:${ux},${uy}`;
     if (key !== this.lastTile) {
       this.lastTile = key;
@@ -316,7 +345,7 @@ export class PlayScene implements Scene, EnemyHost {
     const [tx, ty] = p.tile();
     const t = this.map.get(tx, ty);
     const winter = seasonOf(this.s.day) === 3 && this.mode === 'town';
-    const color = this.mode === 'mine' ? '#6b5f58' : winter ? '#eef4f8' : t === Tile.PATH || t === Tile.SAND ? '#d9bb83' : '#9fc77a';
+    const color = this.mode === 'mine' ? '#6b5f58' : winter ? '#eef4f8' : t === Tile.PATH || t === Tile.SAND ? '#d9bb83' : t === Tile.GRAVEL || t === Tile.RUIN ? '#b4aca2' : '#9fc77a';
     for (let i = 0; i < 3; i++) {
       this.fx.particles.push({ x: p.x + (Math.random() - 0.5) * 6, y: p.y + 2, vx: -p.vx * 0.15 + (Math.random() - 0.5) * 20, vy: -10 - Math.random() * 12, t: 0.35, c: color, g: 60 });
     }
@@ -332,7 +361,7 @@ export class PlayScene implements Scene, EnemyHost {
       { icon: toolIcons.pick, label: '镐' },
       { icon: toolIcons.food, label: '回复（药水 / 作物）', count: count(s, 'potion') + count(s, 'bigPotion') },
     ];
-    const boss = this.enemies.find((e) => e.boss);
+    const boss = this.enemies.find((e) => e.boss) ?? nearRegionBoss(this, 200);
     const q = quests.currentQuest(s);
     let quest: string | null = null;
     if (q && s.quest.active) {
@@ -347,7 +376,7 @@ export class PlayScene implements Scene, EnemyHost {
       clock: clockText(s.time),
       weather: WEATHER_NAME[s.weather],
       gold: s.gold,
-      where: this.mode === 'town' ? '萤石谷' : `矿脉 ${this.floor}F · ${floorName(this.floor)}`,
+      where: this.mode === 'mine' ? `矿脉 ${this.floor}F · ${floorName(this.floor)}` : REGIONS[this.region].name,
       level: s.level,
       xp: s.xp,
       xpNext: s.level >= 20 ? 0 : xpToNext(s.level),
@@ -381,8 +410,9 @@ export class PlayScene implements Scene, EnemyHost {
   private blocked(tx: number, ty: number, fly: boolean): boolean {
     if (fly) return this.map.get(tx, ty) === Tile.ROCK;
     if (this.map.solid(tx, ty)) return true;
+    if (this.barriers.has(`${tx},${ty}`)) return true;
     if (this.mode === 'mine') return this.ores.some((o) => o.tx === tx && o.ty === ty) || this.chests.some((c) => c.tx === tx && c.ty === ty);
-    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty) || exploreBlocked(this, tx, ty);
+    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty) || (this.mode === 'town' && exploreBlocked(this, tx, ty));
   }
 
   boxFree(x: number, y: number, hw: number, hh: number, fly = false): boolean {
@@ -415,7 +445,7 @@ export class PlayScene implements Scene, EnemyHost {
   }
 
   spawnMonster(id: MonsterId, x: number, y: number): void {
-    const m = new Monster(id, x, y, this.floor);
+    const m = new Monster(id, x, y, this.danger);
     if (!this.boxFree(x, y, m.hw, m.hh)) {
       // 生成点在墙里时退回到 Boss 脚下
       const boss = this.enemies.find((e) => e.boss);
@@ -478,16 +508,74 @@ export class PlayScene implements Scene, EnemyHost {
   }
 
   private enterTown(spawn: [number, number], fy: number): void {
+    this.enterRegion('town', spawn, [0, fy]);
+  }
+
+  /** 换到一个地面区域，站在 spawn 格子上 */
+  private enterRegion(id: RegionId, spawn: [number, number], face: [number, number]): void {
     this.resetWorld();
-    this.mode = 'town';
+    this.region = id;
+    this.mode = id === 'town' ? 'town' : 'wild';
     this.floor = 0;
     this.layout = null;
-    this.map = this.overworld.map;
-    this.npcs = NPC_IDS.map((id) => new Npc(id, this.s.time));
+    this.area = id === 'town' ? this.townArea : wildLayout(id);
+    this.map = this.area.map;
+    if (id === 'town') this.npcs = NPC_IDS.map((n) => new Npc(n, this.s.time));
+    else populateRegion(this, this.area);
+    this.barriers.clear();
+    for (const ex of this.area.exits) {
+      const hint = lockReason(this.s, ex.target);
+      if (hint) for (const [x, y] of exitCells(this.area, ex)) this.barriers.set(`${x},${y}`, { target: ex.target, hint });
+    }
     this.player.place(spawn[0], spawn[1]);
-    this.player.face(0, fy);
-    enterOutdoor(this);
+    this.player.face(face[0], face[1]);
+    if (id === 'town') enterOutdoor(this);
+    if (markVisited(this.s, id)) this.pendingIntro = { who: '世界地图', text: `发现了新的区域【${REGIONS[id].name}】。按 M 打开世界地图，以后可以快速旅行过来。` };
     this.setMusic();
+  }
+
+  private showBanner(text: string): void {
+    this.bannerText = text;
+    this.floorBanner = 2.5;
+  }
+
+  /** 走到地图边上的路口就去相邻区域；撞到还没开放的路口时提示一下 */
+  private checkExits(ux: number, uy: number, pushing: boolean): void {
+    const ex = exitAt(this.area, ux, uy);
+    if (ex && !lockReason(this.s, ex.target)) {
+      this.walkTo(ex);
+      return;
+    }
+    if (!pushing) return;
+    const [fx, fy] = this.player.frontTile();
+    const lock = this.barriers.get(`${fx},${fy}`);
+    if (lock && (lock.target !== this.lockToast.target || this.clock - this.lockToast.at > 3)) {
+      this.lockToast = { at: this.clock, target: lock.target };
+      this.toast(lock.hint);
+    }
+  }
+
+  /** 从路口走到相邻区域，出现在对面区域相应的路口 */
+  private walkTo(ex: RegionExit): void {
+    const target = ex.target;
+    const L = target === 'town' ? this.townArea : wildLayout(target);
+    const edge = OPPOSITE[ex.edge];
+    const spawn = arrivalAt(L, edge);
+    const face: [number, number] = edge === 'n' ? [0, 1] : edge === 's' ? [0, -1] : edge === 'w' ? [1, 0] : [-1, 0];
+    this.ui.fade.run(REGIONS[target].name, () => {
+      this.enterRegion(target, spawn, face);
+      this.showBanner(REGIONS[target].name);
+    }, 450);
+  }
+
+  /** 快速旅行：花掉一点时间，出现在目标区域的萤石路标旁边（或者指定的格子） */
+  fastTravel(id: RegionId, at?: [number, number]): void {
+    const L = id === 'town' ? this.townArea : wildLayout(id);
+    this.ui.fade.run(`前往${REGIONS[id].name}`, () => {
+      this.s.time += TRAVEL_MINUTES;
+      this.enterRegion(id, at ?? L.arrive, [0, 1]);
+      this.showBanner(REGIONS[id].name);
+    }, 700);
   }
 
   goToFloor(n: number): void {
@@ -509,7 +597,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.chests = L.chests.map(([tx, ty]) => ({ tx, ty, open: false }));
     this.player.place(L.spawn[0], L.spawn[1]);
     this.player.face(0, 1);
-    this.floorBanner = 2.5;
+    this.showBanner(`第 ${n} 层 · ${floorName(n)}`);
     s.deepest = Math.max(s.deepest, n);
     if (L.boss) {
       const x = L.boss.tx * TS + 8;
@@ -538,6 +626,7 @@ export class PlayScene implements Scene, EnemyHost {
   setMusic(): void {
     let track: Track;
     if (this.mode === 'mine') track = this.enemies.some((e) => e.boss) ? 'boss' : 'mine';
+    else if (nearRegionBoss(this, 160)) track = 'boss';
     else track = this.s.time >= 19 * 60 ? 'night' : 'farm';
     audio.music(track);
   }
@@ -592,7 +681,7 @@ export class PlayScene implements Scene, EnemyHost {
     s.buff = null;
     s.hp = this.maxHp;
     const homeMsgs = homeNewDay(this);
-    spawnForage(s, this.overworld.forage);
+    spawnAllForage(s, this.townArea);
     const news = exploreDay(this);
     this.enterTown(this.overworld.spawns.home, 1);
     const msgs: string[] = [];

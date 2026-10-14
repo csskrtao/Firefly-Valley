@@ -14,11 +14,14 @@ import { clockText } from '../../systems/time';
 import { sellAll, sellableValue } from '../../systems/economy';
 import * as farm from '../../systems/farming';
 import { accSum, maxHp } from '../../systems/stats';
+import { forageKey } from '../../systems/regions';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { homeInteract, oreStoneBonus, tryQuarry } from './home';
+import { announceGear } from './gearui';
 import { exploreInteract } from './explore';
 import { homeMenu, mineEntrance, talkTo } from './town';
+import { interactWild } from './regions';
 
 export const TOOLS = [
   { id: 'hoe', name: '锄头', cost: 2 },
@@ -73,8 +76,8 @@ export function useTool(sc: PlayScene): void {
   const [tx, ty] = sc.player.frontTile();
   const key = farm.fieldKey(tx, ty);
 
-  if (sc.mode === 'town') {
-    if (farm.isRipe(s.field[key])) {
+  if (sc.mode !== 'mine') {
+    if (sc.mode === 'town' && farm.isRipe(s.field[key])) {
       doHarvest(sc, tx, ty);
       return;
     }
@@ -209,6 +212,10 @@ export function interact(sc: PlayScene): void {
     talkTo(sc, npc.id);
     return;
   }
+  if (sc.mode === 'wild') {
+    interactWild(sc, tx, ty);
+    return;
+  }
   const t = sc.map.get(tx, ty);
   if (sc.mode === 'town') {
     const key = farm.fieldKey(tx, ty);
@@ -275,7 +282,7 @@ function openChest(sc: PlayScene, chest: { tx: number; ty: number; open: boolean
   chest.open = true;
   const s = sc.s;
   const loot = rollChest(s, sc.floor);
-  applyLoot(s, loot);
+  const gears = applyLoot(s, loot);
   sc.sfx('chest');
   const x = chest.tx * TS + 8;
   const y = chest.ty * TS;
@@ -285,22 +292,24 @@ function openChest(sc: PlayScene, chest: { tx: number; ty: number; open: boolean
   for (const [id, n] of Object.entries(loot.items) as [ItemId, number][]) {
     sc.fx.text(x, y - 4 - dy, `+${n} ${ITEMS[id].name}`, ITEMS[id].color);
     dy += 8;
-    if (ITEMS[id].kind === 'accessory') sc.ui.dialog.say('宝箱', `找到了饰品【${ITEMS[id].name}】！${ITEMS[id].desc} 在背包的装备页可以戴上。`);
+    if (ITEMS[id].kind === 'accessory') sc.ui.dialog.say('宝箱', `找到了饰品【${ITEMS[id].name}】！${ITEMS[id].desc} 在背包里点它就能戴上。`);
   }
   if (loot.blueprint) {
     const wt = WEAPON_TYPES[loot.blueprint];
-    sc.ui.dialog.say('宝箱', `找到了一张武器图纸：【${wt.name}】。${wt.desc} 在背包的装备页可以换上。`);
+    sc.ui.dialog.say('宝箱', `找到了一张武器图纸：【${wt.name}】，还有一把照着图纸打的${wt.name}。${wt.desc} 在背包里点它就能换上。`);
   }
+  // 图纸送的那把武器上面已经说过了
+  announceGear(sc, gears.slice(loot.blueprint ? 1 : 0), x, y - 4 - dy);
 }
 
 /** 走到采集物上自动捡起来 */
 export function pickupForage(sc: PlayScene): void {
   const [tx, ty] = sc.player.tile();
-  const key = `${tx},${ty}`;
+  const key = forageKey(sc.region, tx, ty);
   if (sc.s.forage[key]) collectForage(sc, key, tx, ty);
 }
 
-function collectForage(sc: PlayScene, key: string, tx: number, ty: number): void {
+export function collectForage(sc: PlayScene, key: string, tx: number, ty: number): void {
   const s = sc.s;
   // 刺客眼尖、四叶草带来好运，有时能多捡一个
   const lucky = Math.random() < (s.cls === 'rogue' ? 0.3 : 0) + accSum(s, 'luck') * 0.2;

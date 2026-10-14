@@ -74,7 +74,10 @@ export function applyHome(sc: PlayScene): void {
   for (const b of s.home.builds) for (const [x, y] of home.footprint(b.id, b.x, b.y)) m.set(x, y, Tile.BUILT);
 
   for (const area of ['forest', 'meadow', 'beach'] as ForageArea[]) ow.forage[area] = p.forage[area].filter(([x, y]) => !m.solid(x, y));
+  home.syncStash(s);
   for (const k of Object.keys(s.forage)) {
+    // 带冒号的是野外区域的采集物，不在小镇地图上
+    if (k.includes(':')) continue;
     const [x, y] = k.split(',').map(Number);
     if (m.solid(x, y)) delete s.forage[k];
   }
