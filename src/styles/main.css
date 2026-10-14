@@ -397,3 +397,13 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .toast, .fade, .bar i, .bossbar-track i { transition: none; }
 }
+
+/* ---------- 存档码 ---------- */
+
+.code-box {
+  display: block; width: 100%; box-sizing: border-box; margin: 0 0 .8cqw;
+  background: var(--bg); color: var(--ink); border: 2px solid var(--edge); padding: .6em .8em;
+  font: 12px/1.5 ui-monospace, monospace; word-break: break-all; resize: vertical;
+}
+.code-box:focus { outline: none; border-color: var(--glow); }
+.muted.bad { color: var(--danger); }

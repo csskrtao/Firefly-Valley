@@ -66,3 +66,25 @@ export function renderHelp(body: HTMLElement): void {
     h('p', { class: 'muted', text: '手机上用屏幕两侧的虚拟按键操作。' }),
   );
 }
+
+/** 存档码页：显示一个存档的存档码和复制按钮。标题画面和暂停菜单共用 */
+export function renderSaveCode(body: HTMLElement, code: string): void {
+  const box = h('textarea', { class: 'code-box', rows: '5', readonly: '', spellcheck: 'false', 'aria-label': '存档码' });
+  box.value = code;
+  const status = h('p', { class: 'muted', text: '在另一台设备上打开萤石谷，标题画面选「导入存档码」，粘贴进去就能接着玩。' });
+  const copy = h('button', { type: 'button', class: 'menu-btn', 'data-nav': '' }, h('span', { text: '复制存档码' }));
+  copy.addEventListener('click', async () => {
+    audio.sfx('select');
+    try {
+      await navigator.clipboard.writeText(code);
+      status.textContent = '已复制。存档码里有你的全部进度，收好别弄丢。';
+    } catch {
+      // 不允许直接写剪贴板时，选中全部文字让玩家自己复制
+      box.focus();
+      box.select();
+      status.textContent = '已经全部选中，按 Ctrl+C（手机上长按选择“复制”）。';
+    }
+  });
+  box.addEventListener('focus', () => box.select());
+  body.append(box, h('div', { class: 'menu' }, copy), status);
+}
