@@ -26,13 +26,15 @@ export const Tile = {
   BENCH: 24,
   /** 森林里的深色草地 */
   FOREST: 25,
+  /** 玩家在农场上盖的设施和摆的装饰 */
+  BUILT: 26,
 } as const;
 
 export type TileId = (typeof Tile)[keyof typeof Tile];
 
 const SOLID = new Set<number>([
   Tile.WATER, Tile.TREE, Tile.WALL, Tile.DOOR, Tile.FENCE, Tile.CAVE, Tile.ROCK, Tile.BIN, Tile.FOUNTAIN, Tile.CLIFF,
-  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH,
+  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH, Tile.BUILT,
 ]);
 
 export const isSolidTile = (t: number): boolean => SOLID.has(t);

@@ -15,6 +15,7 @@ import * as farm from '../../systems/farming';
 import { accSum, maxHp } from '../../systems/stats';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
+import { homeInteract, oreStoneBonus, tryQuarry } from './home';
 import { homeMenu, mineEntrance, talkTo } from './town';
 
 export const TOOLS = [
@@ -75,8 +76,9 @@ export function useTool(sc: PlayScene): void {
       doHarvest(sc, tx, ty);
       return;
     }
+    if (tool === 'pick' && tryQuarry(sc, tx, ty, TOOLS[3].cost)) return;
     if (sc.map.get(tx, ty) !== Tile.FIELD) {
-      if (tool === 'pick') sc.toast('镐要在矿脉里用');
+      if (tool === 'pick') sc.toast('镐在矿脉里挖矿，在地上可以敲碎石头');
       else if (tool === 'hoe') sc.toast('只能在围栏里的田地锄地');
       else sc.toast('面向田地使用');
       return;
@@ -146,6 +148,7 @@ export function useTool(sc: PlayScene): void {
     sc.sfx('pickup');
     sc.fx.text(tx * TS + 8, ty * TS, `+${n} ${ITEMS[ore.item].name}`, ITEMS[ore.item].color);
     sc.ores.splice(sc.ores.indexOf(ore), 1);
+    oreStoneBonus(sc, tx, ty);
   }
 }
 
@@ -215,6 +218,7 @@ export function interact(sc: PlayScene): void {
       collectForage(sc, key, tx, ty);
       return;
     }
+    if (homeInteract(sc, tx, ty)) return;
     if (t === Tile.DOOR) {
       const b = sc.overworld.buildings.find((bb) => bb.door[0] === tx && bb.door[1] === ty);
       if (!b) return;

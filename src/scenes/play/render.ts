@@ -22,6 +22,8 @@ import type { Building } from '../../world/overworld';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
+import { drawGhost, homeDrawables } from './home';
+import { woodGlyph } from '../../gfx/home';
 
 const dark = document.createElement('canvas');
 dark.width = VW;
@@ -78,7 +80,7 @@ export function renderPlay(sc: PlayScene): void {
       if (!visible) continue;
       const grass = grassTiles[season][Math.floor(hash(x, y) * 3)];
       switch (t) {
-        case Tile.GRASS: b.drawImage(grass, px, py); break;
+        case Tile.GRASS: case Tile.BUILT: b.drawImage(grass, px, py); break;
         case Tile.FOREST: b.drawImage(forestTiles[season][hash(x, y) < 0.5 ? 0 : 1], px, py); break;
         case Tile.PATH: case Tile.WALL: case Tile.DOOR: b.drawImage(pathTile, px, py); break;
         case Tile.PLAZA: b.drawImage(plazaTile, px, py); break;
@@ -114,6 +116,7 @@ export function renderPlay(sc: PlayScene): void {
       if (bx > VW + 8 || by > VH + 8 || bx + bd.w * TS < -8 || by + bd.h * TS < -40) continue;
       list.push({ y: (bd.y + bd.h) * TS - 1, d: () => drawBuilding(sc, bd, cx, cy) });
     }
+    list.push(...homeDrawables(sc, cx, cy, night));
     // 地上的采集物
     for (const [k, id] of Object.entries(sc.s.forage)) {
       const [x, y] = k.split(',').map(Number);
@@ -128,7 +131,7 @@ export function renderPlay(sc: PlayScene): void {
     const [tx, ty] = sc.player.frontTile();
     const t = map.get(tx, ty);
     const show = town
-      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN
+      ? !sc.placing && (t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN || t === Tile.BUILT || (t === Tile.STONE && sc.s.tool === 3))
       : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty) || sc.chests.some((c) => !c.open && c.tx === tx && c.ty === ty);
     if (show) {
       b.strokeStyle = 'rgba(255,255,255,.55)';
@@ -181,6 +184,7 @@ export function renderPlay(sc: PlayScene): void {
   for (const e of sc.enemies) list.push({ y: e.y, d: () => e.draw(b, cx, cy, sc.clock) });
   list.push({ y: sc.player.y, d: () => drawPlayer(sc, cx, cy) });
   list.sort((a, c) => a.y - c.y).forEach((o) => o.d());
+  drawGhost(sc, cx, cy);
 
   for (const s of sc.shots) drawShot(b, s, cx, cy);
   drawStrikes(sc, b, cx, cy);
@@ -218,7 +222,7 @@ function forageImg(id: ItemId): Img {
   let img = forageCache.get(id);
   if (!img) {
     const d = ITEMS[id] as ItemDef;
-    img = forageGlyph(d.color, d.glyph ?? 'plant');
+    img = d.glyph === 'log' ? woodGlyph(d.color) : forageGlyph(d.color, d.glyph ?? 'plant');
     forageCache.set(id, img);
   }
   return img;

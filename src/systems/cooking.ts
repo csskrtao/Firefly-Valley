@@ -4,8 +4,11 @@ import type { Recipe } from '../data/recipes';
 import type { SaveData } from '../state/save';
 import { addItem, count, removeItem } from '../state/save';
 
+/** 厨房够不够格：石屋、大宅才能做的菜 */
+export const kitchenOk = (s: SaveData, r: Recipe): boolean => (r.kitchen ?? 0) <= s.home.house;
+
 export function canCook(s: SaveData, r: Recipe): boolean {
-  return (Object.entries(r.needs) as [ItemId, number][]).every(([id, n]) => count(s, id) >= n);
+  return kitchenOk(s, r) && (Object.entries(r.needs) as [ItemId, number][]).every(([id, n]) => count(s, id) >= n);
 }
 
 export function cook(s: SaveData, r: Recipe): boolean {

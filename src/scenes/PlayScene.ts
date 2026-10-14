@@ -42,6 +42,9 @@ import { currentSeed, heal, interact, pickupForage, selectSlot, useTool } from '
 import type { Shot, Strike } from './play/combat';
 import * as combat from './play/combat';
 import { Fx } from './play/fx';
+import type { Placing } from './play/home';
+import { cancelPlacing, enterHome, homeNewDay, updatePlacing } from './play/home';
+import { lateEnergy } from '../systems/home';
 import { openInventory, openPause } from './play/menus';
 import { renderPlay } from './play/render';
 
@@ -84,6 +87,8 @@ export class PlayScene implements Scene, EnemyHost {
   shots: Shot[] = [];
   strikes: Strike[] = [];
   chests: Chest[] = [];
+  /** 家园建造的摆放模式 */
+  placing: Placing | null = null;
   hazards: Hazard[] = [];
   crystals: [number, number][] = [];
   /** 场景内累计时间，驱动各种动画 */
@@ -111,6 +116,7 @@ export class PlayScene implements Scene, EnemyHost {
     };
     this.applySettings();
     this.s.hp = Math.min(this.s.hp, this.maxHp);
+    enterHome(this);
     if (this.s.forageDay !== this.s.day) spawnForage(this.s, this.overworld.forage);
     this.enterTown(this.overworld.spawns.home, 1);
     if (this.s.playTime === 0) {
@@ -151,6 +157,7 @@ export class PlayScene implements Scene, EnemyHost {
       return;
     }
 
+    if (this.placing && input.pressed('pause')) return cancelPlacing(this);
     if (input.pressed('pause')) return openPause(this);
     if (input.pressed('inventory')) return openInventory(this);
 
@@ -235,14 +242,17 @@ export class PlayScene implements Scene, EnemyHost {
     });
     if (input.pressed('cycle')) selectSlot(this, (s.tool + 1) % 4);
     if (input.pressed('heal')) heal(this);
-    if (input.pressed('attack') || input.held('attack')) combat.attack(this);
-    (['skill', 'skill2', 'skill3'] as const).forEach((a, i) => {
-      if (!input.pressed(a)) return;
-      if (this.mode === 'town') this.toast('技能留到矿脉里再用吧');
-      else combat.useSkill(this, i);
-    });
-    if (input.pressed('tool')) useTool(this);
-    if (input.pressed('interact')) interact(this);
+    if (this.placing) updatePlacing(this, input);
+    else {
+      if (input.pressed('attack') || input.held('attack')) combat.attack(this);
+      (['skill', 'skill2', 'skill3'] as const).forEach((a, i) => {
+        if (!input.pressed(a)) return;
+        if (this.mode === 'town') this.toast('技能留到矿脉里再用吧');
+        else combat.useSkill(this, i);
+      });
+      if (input.pressed('tool')) useTool(this);
+      if (input.pressed('interact')) interact(this);
+    }
 
     // 第一次站上楼梯时提示一下
     const [ux, uy] = p.tile();
@@ -350,7 +360,7 @@ export class PlayScene implements Scene, EnemyHost {
     const s = this.s;
     const p = this.player;
     const out: string[] = [];
-    if (s.buff && s.time < s.buff.until) out.push(`${ITEMS[s.buff.from].name}：${BUFF_TEXT[s.buff.stat](s.buff.value)} 到 ${clockText(s.buff.until)}`);
+    if (s.buff && s.time < s.buff.until) out.push(`${s.buff.label ?? ITEMS[s.buff.from].name}：${BUFF_TEXT[s.buff.stat](s.buff.value)} 到 ${clockText(s.buff.until)}`);
     if (p.rageT > 0) out.push(`战吼 ${Math.ceil(p.rageT)}s`);
     if (p.venomT > 0) out.push(`毒刃 ${Math.ceil(p.venomT)}s`);
     if (p.swarmT > 0) out.push(`萤灵增殖 ${Math.ceil(p.swarmT)}s`);
@@ -459,6 +469,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.fx.clear();
     this.player.inv = 0;
     this.player.dashT = 0;
+    this.placing = null;
   }
 
   private enterTown(spawn: [number, number], fy: number): void {
@@ -532,7 +543,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.ui.fade.run(dateText(this.s.day + 1), () => {
       const msgs = this.newDay();
       if (late) {
-        this.s.en = 70;
+        this.s.en = lateEnergy(this.s);
         msgs.unshift('熬夜了，体力只恢复了一部分。');
       }
       this.morning(msgs);
@@ -573,6 +584,7 @@ export class PlayScene implements Scene, EnemyHost {
     s.en = 100;
     s.buff = null;
     s.hp = this.maxHp;
+    const homeMsgs = homeNewDay(this);
     spawnForage(s, this.overworld.forage);
     this.enterTown(this.overworld.spawns.home, 1);
     const msgs: string[] = [];
@@ -580,6 +592,7 @@ export class PlayScene implements Scene, EnemyHost {
     if (withered) msgs.push(`换季了，${withered} 株过季的作物枯萎了。`);
     if (s.weather === 'rain') msgs.push('外面在下雨，田里的作物都被浇透了。');
     else if (s.weather === 'snow') msgs.push('下雪了，整个山谷白茫茫的。');
+    msgs.push(...homeMsgs);
     if (!this.saveGame()) msgs.push('存档失败：浏览器不允许保存数据。');
     return msgs;
   }

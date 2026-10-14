@@ -4,6 +4,7 @@ import type { ItemId } from '../data/items';
 import { ITEMS } from '../data/items';
 import type { Img } from './sprite';
 import { paint } from './sprite';
+import { buildIcon } from './home';
 
 const tile = (fn: (g: CanvasRenderingContext2D) => void): Img => paint(16, 16, fn);
 
@@ -323,6 +324,9 @@ export function itemIcon(id: ItemId): Img {
         g.fillStyle = 'rgba(255,255,255,.6)';
         g.fillRect(5, 6, 1, 2);
       });
+      break;
+    case 'build':
+      img = buildIcon(id, c);
       break;
     case 'key':
       img = tile((g) => {

@@ -12,7 +12,9 @@ import type { ItemDef } from '../../data/items';
 import { BUFF_TEXT } from '../../data/items';
 import { RECIPES } from '../../data/recipes';
 import { typesOf, weaponType } from '../../data/weapons';
-import { canCook, cook } from '../../systems/cooking';
+import { canCook, cook, kitchenOk } from '../../systems/cooking';
+import { HOUSES } from '../../data/buildings';
+import { homeChoices, homeGreeting } from './home';
 import { addItem, count, seasonOf } from '../../state/save';
 import { buy, price, sellAll, sellableValue } from '../../systems/economy';
 import * as forge from '../../systems/forge';
@@ -231,6 +233,16 @@ export function shopMenu(sc: PlayScene, greeting?: string): void {
     },
   }));
   if (!seeds.length) choices.push({ label: '（冬天没有能种的种子）', disabled: true });
+  choices.push({
+    label: '买 木材 ×10',
+    note: `${price('wood', 10)} 金 · 盖房子、造设施用`,
+    disabled: s.gold < price('wood', 10),
+    onSelect: () => {
+      if (!buy(s, 'wood', 10)) return;
+      sc.sfx('coin');
+      shopMenu(sc, '木头是隔壁山上运来的，结实着呢。');
+    },
+  });
   const cropValue = sellableValue(s, ['crop', 'forage']);
   choices.push({
     label: cropValue ? `卖出全部作物和采集物 +${cropValue}金` : '卖出全部作物和采集物',
@@ -354,10 +366,11 @@ function kidTalk(sc: PlayScene): void {
 
 export function homeMenu(sc: PlayScene): void {
   const cookable = RECIPES.filter((r) => canCook(sc.s, r)).length;
-  sc.ui.dialog.say('家', '祖母的旧房子。床还挺软的，灶台也还能用。', {
+  sc.ui.dialog.say('家', homeGreeting(sc), {
     choices: [
       { label: '睡觉', note: '睡到明天早上，会自动存档', onSelect: () => sc.sleep() },
       { label: '做饭', note: cookable ? `现在能做 ${cookable} 道菜` : '材料不够的话可以先看看菜谱', onSelect: () => cookPanel(sc) },
+      ...homeChoices(sc),
       { label: '离开' },
     ],
   });
@@ -374,6 +387,7 @@ export function cookPanel(sc: PlayScene): void {
       for (const r of RECIPES) {
         const d = ITEMS[r.dish] as ItemDef;
         const ok = canCook(s, r);
+        const kitchen = kitchenOk(s, r) ? '' : `需要${HOUSES[r.kitchen ?? 0].name}的厨房`;
         const needs = (Object.entries(r.needs) as [ItemId, number][]).map(([id, n]) => {
           const have = count(s, id);
           return h('span', { class: have >= n ? 'have' : 'miss', text: `${itemName(id)} ${have}/${n}` });
@@ -386,12 +400,12 @@ export function cookPanel(sc: PlayScene): void {
             h('small', { text: eff }),
             h('p', {}, ...needs),
           ),
-          h('em', { text: count(s, r.dish) ? `已有 ${count(s, r.dish)}` : '' }),
+          h('em', { text: kitchen || (count(s, r.dish) ? `已有 ${count(s, r.dish)}` : '') }),
         );
         row.addEventListener('click', () => {
           if (!cook(s, r)) {
             sc.sfx('fail');
-            sc.toast('材料不够');
+            sc.toast(kitchen || '材料不够');
             return;
           }
           sc.sfx('cook');
