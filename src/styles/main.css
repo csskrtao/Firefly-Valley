@@ -355,11 +355,14 @@ button { font: inherit; color: inherit; }
   .touch-menu { position: fixed; top: 34%; right: max(10px, env(safe-area-inset-right)); }
 }
 
-/* 竖屏：画面贴顶，下面留给对话框、菜单和触屏按键 */
+/* 竖屏：标题画面贴顶，下面留给菜单；游戏中画面填满触屏按键上方 */
 @media (orientation: portrait) {
   #app { justify-content: flex-start; padding-top: env(safe-area-inset-top); }
   .screen { width: 100vw; aspect-ratio: auto; flex: 1; min-height: 0; font-size: 15px; background: #100d1c; }
   .stage { position: relative; inset: auto; width: 100%; aspect-ratio: 16 / 9; }
+  /* 游戏中画面占满按键上方的整块区域，视野变高（见 Renderer.resize），对话框浮在画面下部 */
+  body.playing .stage { aspect-ratio: auto; height: 100%; }
+  body.playing .dialog { max-height: 46%; }
   .hud { font-size: 11px; }
   .hud-left { width: 34cqw; }
   .bar { height: 3.4cqw; }
