@@ -24,6 +24,7 @@ import type { Building } from '../../world/overworld';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
+import { drawExplore, exploreHighlight, exploreLights } from './explore';
 import { drawAtmosphere } from './regionFx';
 
 const dark = document.createElement('canvas');
@@ -140,6 +141,7 @@ export function renderPlay(sc: PlayScene): void {
       const bob = Math.round(Math.sin(sc.clock * 3 + x + y) * 0.6);
       b.drawImage(forageImg(id), x * TS - cx, y * TS - cy + bob);
     }
+    if (town) drawExplore(sc, b, cx, cy, list);
   }
 
   // 面前可交互格子的提示框
@@ -147,7 +149,7 @@ export function renderPlay(sc: PlayScene): void {
     const [tx, ty] = sc.player.frontTile();
     const t = map.get(tx, ty);
     const show = town
-      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN
+      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN || exploreHighlight(sc, tx, ty)
       : sc.mode === 'wild'
       ? t === Tile.SIGN || t === Tile.WAYSTONE
       : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty) || sc.chests.some((c) => !c.open && c.tx === tx && c.ty === ty);
@@ -747,6 +749,7 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
       const ly = y * TS - 10 - cy;
       if (visible(lx, ly, 50)) hole(lx, ly + 8, 46, 0.9);
     }
+    for (const [x, y] of exploreLights(sc)) if (visible(x - cx, y - cy, 60)) hole(x - cx, y - 8 - cy, 40, 0.85);
     for (const [k, f] of Object.entries(sc.s.field)) {
       if (f.crop === 'berry' && f.days >= CROPS.berry.days) {
         const [x, y] = k.split(',').map(Number);
