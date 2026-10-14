@@ -6,11 +6,10 @@ export interface NpcDef {
   name: string;
   title: string;
   role: NpcRole;
-  /** 站立的图块坐标 */
-  tx: number;
-  ty: number;
-  /** 会在这个矩形范围内闲逛（图块坐标） */
-  wander?: [number, number, number, number];
+  /** 一天的行程：[几点开始, 图块 x, 图块 y]，按时间排序 */
+  schedule: [number, number, number][];
+  /** 到了目的地后在附近几格内闲逛 */
+  roam?: number;
   loves: ItemId[];
   likes: ItemId[];
   dislikes: ItemId[];
@@ -23,8 +22,9 @@ export interface NpcDef {
 
 export const NPCS = {
   smith: {
-    name: '老岩', title: '铁匠', role: 'smith', tx: 25, ty: 8,
-    loves: ['gold', 'glowstone', 'pepper'], likes: ['iron', 'copper', 'yam'], dislikes: ['gel', 'berry'],
+    name: '老岩', title: '铁匠', role: 'smith', roam: 1,
+    schedule: [[6, 33, 8], [12, 41, 16], [13.5, 33, 8], [19, 44, 19], [22, 33, 8]],
+    loves: ['gold', 'glowstone', 'pepper', 'pepperSoup'], likes: ['iron', 'copper', 'yam', 'stew', 'skewer'], dislikes: ['gel', 'berry', 'dandelion'],
     lines: [
       '哼，又来了？剑钝了就拿来。',
       '矿脉里的史莱姆王……你祖母当年也差点栽在它手上。',
@@ -40,8 +40,9 @@ export const NPCS = {
     perks: [{ hearts: 4, text: '强化成功率 +10%' }, { hearts: 6, text: '锻造金币花费 -20%' }],
   },
   vera: {
-    name: '薇拉', title: '杂货店', role: 'shop', tx: 32, ty: 8,
-    loves: ['berry', 'melon', 'pumpkin'], likes: ['radish', 'pepper', 'wing'], dislikes: ['bone', 'spore'],
+    name: '薇拉', title: '杂货店', role: 'shop', roam: 1,
+    schedule: [[6, 43, 8], [11, 50, 13], [13, 43, 8], [18, 49, 19], [21, 43, 8]],
+    loves: ['berry', 'melon', 'pumpkin', 'jam', 'pie'], likes: ['radish', 'pepper', 'wing', 'dandelion', 'raspberry', 'shell'], dislikes: ['bone', 'spore'],
     lines: [
       '欢迎光临！今天的种子都是新到的~',
       '听说锈铁坑道里有会钻地的老鼠，好吓人！',
@@ -57,8 +58,9 @@ export const NPCS = {
     perks: [{ hearts: 4, text: '种子九折' }, { hearts: 6, text: '种子八折' }],
   },
   lia: {
-    name: '莉娅', title: '药剂师', role: 'clinic', tx: 38, ty: 8,
-    loves: ['berry', 'spore', 'pumpkin'], likes: ['radish', 'yam', 'gel'], dislikes: ['bone', 'cog'],
+    name: '莉娅', title: '药剂师', role: 'clinic', roam: 1,
+    schedule: [[6, 51, 8], [15, 27, 35], [18, 51, 8]],
+    loves: ['berry', 'spore', 'pumpkin', 'fireflower', 'morel', 'tea'], likes: ['radish', 'yam', 'gel', 'leek', 'salad'], dislikes: ['bone', 'cog'],
     lines: [
       '受伤了吗？别逞强，药水要随身带着。',
       '光莓和蘑菇孢子……一起熬的话，说不定能做出新药。',
@@ -73,8 +75,9 @@ export const NPCS = {
     perks: [{ hearts: 4, text: '药水八五折' }, { hearts: 5, text: '解锁高级药水' }],
   },
   ian: {
-    name: '艾恩', title: '冒险者公会', role: 'guild', tx: 44, ty: 8,
-    loves: ['glowstone', 'melon'], likes: ['claw', 'wing', 'bone'], dislikes: ['gel', 'radish'],
+    name: '艾恩', title: '冒险者公会', role: 'guild', roam: 1,
+    schedule: [[6, 58, 8], [13, 66, 12], [16, 58, 8], [20, 53, 16], [22, 58, 8]],
+    loves: ['glowstone', 'melon', 'bar', 'crystalFruit'], likes: ['claw', 'wing', 'bone', 'hazelnut'], dislikes: ['gel', 'radish'],
     lines: [
       '公会委托按顺序发布。完成一个，下一个才会出来。',
       '冒险者守则第一条：别死。第二条：别把公会的地板弄脏。',
@@ -83,22 +86,25 @@ export const NPCS = {
     heartEvents: {
       3: '好吧，我承认我在写小说。主角是一个从城里回来的农夫……别笑。',
       4: '你的委托完成得很漂亮。以后报酬给你多加两成。',
+      5: '这副眼镜陪我写完了第一本小说。现在换你用吧，看东西会更清楚。',
     },
-    perks: [{ hearts: 4, text: '委托金币 +25%' }],
+    perks: [{ hearts: 4, text: '委托金币 +25%' }, { hearts: 5, text: '获得饰品「学者眼镜」' }],
   },
   owl: {
-    name: '咕咕', title: '猫头鹰', role: 'owl', tx: 20, ty: 12,
-    loves: ['wing', 'bone'], likes: ['claw', 'gel'], dislikes: ['berry', 'pepper'],
+    name: '咕咕', title: '猫头鹰', role: 'owl',
+    schedule: [[6, 34, 14]],
+    loves: ['wing', 'bone', 'hazelnut'], likes: ['claw', 'gel', 'shell'], dislikes: ['berry', 'pepper'],
     lines: [],
     heartEvents: {
       3: '咕。你还挺有意思的。我告诉你个秘密：我其实……算了，下次再说。',
-      5: '咕咕。这根羽毛送你。听说集齐七根，会发生好事。咕。',
+      5: '咕咕。这根羽毛送你。戴在身上，走路会轻快一点。咕。',
     },
-    perks: [{ hearts: 5, text: '获得咕咕羽毛（彩蛋）' }],
+    perks: [{ hearts: 5, text: '获得饰品「咕咕羽毛」' }],
   },
   kid: {
-    name: '小橡', title: '镇上的孩子', role: 'kid', tx: 29, ty: 13, wander: [26, 11, 34, 15],
-    loves: ['wing', 'claw'], likes: ['berry', 'radish', 'melon'], dislikes: ['spore', 'yam'],
+    name: '小橡', title: '镇上的孩子', role: 'kid', roam: 3,
+    schedule: [[6, 50, 17], [15, 38, 26], [18, 42, 13], [20, 60, 17]],
+    loves: ['wing', 'claw', 'shell', 'raspberry'], likes: ['berry', 'radish', 'melon', 'crystalFruit', 'smoothie'], dislikes: ['spore', 'yam'],
     lines: [
       '你去过矿里吗？里面有没有宝藏？',
       '我丢了个玩具在矿里……等我长大了自己去找！',
@@ -117,11 +123,23 @@ export type NpcId = keyof typeof NPCS;
 export const NPC_IDS = Object.keys(NPCS) as NpcId[];
 export const npcDef = (id: NpcId): NpcDef => NPCS[id];
 
+/** 某个时刻（游戏分钟）NPC 应该在的图块 */
+export function scheduleAt(def: NpcDef, minutes: number): [number, number] {
+  let cur = def.schedule[0];
+  for (const e of def.schedule) if (minutes >= e[0] * 60) cur = e;
+  return [cur[1], cur[2]];
+}
+
 export const OWL_TIPS = [
-  '咕。J 用工具，K 攻击，L 放技能，E 互动，I 打开背包，Esc 暂停。',
+  '咕。J 用工具，K 攻击，L / U / O 放技能，E 互动，按住 Shift 跑步，I 打开背包，Esc 暂停。',
+  '升级会学会新技能：3 级和 6 级各一个。经验靠在矿脉里打怪。',
+  '东边的萤火森林、南边的草地、西南的镜湖，每天都会长出新的采集物，走过去就能捡起来。',
+  '家里的灶台能做饭。料理除了回血，还会给你一种效果，比如攻击变高、跑得更快。',
+  '矿脉里偶尔能找到宝箱，里面可能有饰品，甚至武器图纸。饰品最多同时戴两件。',
+  '老岩那里能买新的武器图纸。同一个职业有三种武器，换着用打法完全不一样。',
   '锄地、播种、浇水。每天都要浇水，作物才会长大。下雨天不用浇。',
   '每个季节 28 天。换季时，不合季节的作物会枯死。',
-  '矿脉入口在南边。每 5 层有一个守层者，它们跳起来或钻地时，盯着地上的影子跑。',
+  '矿脉入口在南边，过了河再往下走。每 5 层有一个守层者，它们跳起来或钻地时，盯着地上的影子跑。',
   '老岩能锻造和强化装备。木、铜、铁、金、萤石，越往后越需要 Boss 的素材。',
   '凌晨两点前回家睡觉。不然……咕，我可懒得再拖你回去。',
   '按 Q 先喝药水，没有药水就吃作物。莉娅那里能买药水。',

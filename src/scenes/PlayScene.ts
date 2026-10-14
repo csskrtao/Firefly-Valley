@@ -6,7 +6,7 @@ import type { Scene } from '../core/Game';
 import { settings } from '../core/settings';
 import { slotKey, storage } from '../core/Storage';
 import { floorName, MAX_FLOOR } from '../data/floors';
-import { ITEMS } from '../data/items';
+import { BUFF_TEXT, ITEMS } from '../data/items';
 import type { MonsterId } from '../data/monsters';
 import { BOSSES } from '../data/monsters';
 import type { NpcId } from '../data/npcs';
@@ -18,13 +18,17 @@ import { Npc } from '../entities/Npc';
 import { Ore } from '../entities/Ore';
 import { Player } from '../entities/Player';
 import type { Img } from '../gfx/sprite';
-import { monsterSprites, npcSprites } from '../gfx/sprites';
+import { npcChars } from '../gfx/people';
+import { monsterSprites } from '../gfx/sprites';
 import { itemIcon, toolIcons } from '../gfx/tiles';
 import type { SaveData } from '../state/save';
 import { count, seasonOf } from '../state/save';
 import { advanceDay } from '../systems/farming';
 import * as quests from '../systems/quests';
-import { classOf, maxHp } from '../systems/stats';
+import { spawnForage } from '../systems/forage';
+import { xpToNext } from '../systems/level';
+import { classOf, maxHp, moveSpeed, regenRate } from '../systems/stats';
+import { SKILLS } from '../data/skills';
 import { clockText, dateText } from '../systems/time';
 import type { HudSlot } from '../ui/Hud';
 import type { FloorLayout } from '../world/mineGen';
@@ -34,14 +38,26 @@ import { buildOverworld } from '../world/overworld';
 import type { TileMap } from '../world/TileMap';
 import { Tile } from '../world/TileMap';
 import type { App } from './App';
-import { currentSeed, heal, interact, selectSlot, useTool } from './play/actions';
-import type { Shot } from './play/combat';
+import { currentSeed, heal, interact, pickupForage, selectSlot, useTool } from './play/actions';
+import type { Shot, Strike } from './play/combat';
 import * as combat from './play/combat';
 import { Fx } from './play/fx';
 import { openInventory, openPause } from './play/menus';
 import { renderPlay } from './play/render';
 
 export type Mode = 'town' | 'mine';
+
+export interface Chest {
+  tx: number;
+  ty: number;
+  open: boolean;
+}
+
+/** 走路速度（像素/秒），按住 Shift 或把摇杆推到底时乘以 RUN_MUL */
+const WALK_SPEED = 76;
+const RUN_MUL = 1.45;
+/** 拐角修正最多挪几个像素 */
+const CORNER_NUDGE = 7;
 
 const SLOT_ACTIONS = ['slot0', 'slot1', 'slot2', 'slot3', 'slot4'] as const;
 const WEATHER_NAME = { sunny: '晴', rain: '雨', snow: '雪' } as const;
@@ -66,6 +82,8 @@ export class PlayScene implements Scene, EnemyHost {
   enemies: Enemy[] = [];
   ores: Ore[] = [];
   shots: Shot[] = [];
+  strikes: Strike[] = [];
+  chests: Chest[] = [];
   hazards: Hazard[] = [];
   crystals: [number, number][] = [];
   /** 场景内累计时间，驱动各种动画 */
@@ -93,6 +111,7 @@ export class PlayScene implements Scene, EnemyHost {
     };
     this.applySettings();
     this.s.hp = Math.min(this.s.hp, this.maxHp);
+    if (this.s.forageDay !== this.s.day) spawnForage(this.s, this.overworld.forage);
     this.enterTown(this.overworld.spawns.home, 1);
     if (this.s.playTime === 0) {
       const face = this.npcFace('owl');
@@ -145,11 +164,16 @@ export class PlayScene implements Scene, EnemyHost {
     this.setMusic();
 
     this.updatePlayer(dt);
+    const regen = regenRate(s);
+    if (regen > 0 && s.hp > 0) s.hp = Math.min(this.maxHp, s.hp + regen * dt);
     if (this.mode === 'town') {
-      const canStand = (tx: number, ty: number) => !this.map.solid(tx, ty) && !(tx === this.player.tile()[0] && ty === this.player.tile()[1]);
-      for (const n of this.npcs) n.update(dt, canStand);
+      const [px, py] = this.player.tile();
+      const canWalk = (tx: number, ty: number) => !this.map.solid(tx, ty) && !(tx === px && ty === py);
+      for (const n of this.npcs) n.update(dt, s.time, this.map, canWalk, this.player);
+      pickupForage(this);
     } else {
       for (const e of this.enemies.slice()) e.update(this, dt);
+      combat.updateCombat(this, dt);
       combat.updateShots(this, dt);
       combat.updateOrbs(this, dt);
       combat.updateHazards(this, dt);
@@ -160,39 +184,63 @@ export class PlayScene implements Scene, EnemyHost {
     const input = this.game.input;
     const p = this.player;
     const s = this.s;
-    const C = classOf(s);
     p.tick(dt);
 
+    // 方向输入：触屏摇杆是模拟量，键盘是八方向
     let mx = 0;
     let my = 0;
-    if (input.held('left')) mx--;
-    if (input.held('right')) mx++;
-    if (input.held('up')) my--;
-    if (input.held('down')) my++;
-    // 斜着走时优先朝左右，面前的格子才不会是斜角
-    if (mx) p.face(mx, 0);
-    else if (my) p.face(0, my);
+    const stick = input.stick;
+    if (stick.active) {
+      mx = stick.x;
+      my = stick.y;
+    } else {
+      if (input.held('left')) mx--;
+      if (input.held('right')) mx++;
+      if (input.held('up')) my--;
+      if (input.held('down')) my++;
+      const l = Math.hypot(mx, my);
+      if (l) {
+        mx /= l;
+        my /= l;
+      }
+    }
+    const mag = Math.min(1, Math.hypot(mx, my));
+    if (mag > 0.2) this.faceToward(mx, my);
 
     if (p.dashT > 0) combat.updateDash(this, dt);
     else {
-      const l = Math.hypot(mx, my) || 1;
       const tired = s.en <= 0 ? 0.7 : 1;
-      const sp = 72 * C.speed * tired * (p.atkT > 0 ? 0.45 : 1);
-      p.moving = !!(mx || my);
-      if (p.moving) p.walk += dt * 8 * C.speed;
-      this.move(p, (mx / l) * sp * dt + p.kx * dt, (my / l) * sp * dt + p.ky * dt, p.hw, p.hh);
+      p.running = (input.held('run') || (stick.active && mag > 0.9)) && s.en > 0;
+      const sp = WALK_SPEED * moveSpeed(s) * tired * (p.atkT > 0 ? 0.45 : 1) * (p.running ? RUN_MUL : 1);
+      // 平滑加减速：起步约 0.1 秒到全速，松手很快停下
+      const k = 1 - Math.exp(-dt * (mag > 0.2 ? 20 : 26));
+      p.vx += (mx * sp - p.vx) * k;
+      p.vy += (my * sp - p.vy) * k;
+      if (Math.abs(p.vx) < 1 && !mx) p.vx = 0;
+      if (Math.abs(p.vy) < 1 && !my) p.vy = 0;
+      const before = Math.floor(p.walk);
+      const ox = p.x;
+      const oy = p.y;
+      this.movePlayer(p.vx * dt + p.kx * dt, p.vy * dt + p.ky * dt, mx, my);
+      const moved = Math.hypot(p.x - ox, p.y - oy);
+      p.moving = mag > 0.2 && moved > 0.05;
+      if (p.moving) p.walk += moved / 7;
+      else p.walk = 0;
+      const now = Math.floor(p.walk);
+      // 每迈一步：轻轻的脚步声，跑起来还会扬起尘土
+      if (now !== before && now % 2 === 1) this.footstep();
     }
-
     SLOT_ACTIONS.forEach((a, i) => {
       if (input.pressed(a)) selectSlot(this, i);
     });
     if (input.pressed('cycle')) selectSlot(this, (s.tool + 1) % 4);
     if (input.pressed('heal')) heal(this);
     if (input.pressed('attack') || input.held('attack')) combat.attack(this);
-    if (input.pressed('skill')) {
+    (['skill', 'skill2', 'skill3'] as const).forEach((a, i) => {
+      if (!input.pressed(a)) return;
       if (this.mode === 'town') this.toast('技能留到矿脉里再用吧');
-      else combat.useSkill(this);
-    }
+      else combat.useSkill(this, i);
+    });
     if (input.pressed('tool')) useTool(this);
     if (input.pressed('interact')) interact(this);
 
@@ -207,9 +255,60 @@ export class PlayScene implements Scene, EnemyHost {
     }
   }
 
+  /** 斜着走时保持原来的朝向，只有另一个方向明显占优才转身，避免面前的格子来回跳 */
+  private faceToward(mx: number, my: number): void {
+    const p = this.player;
+    const ax = Math.abs(mx);
+    const ay = Math.abs(my);
+    const sx = Math.sign(mx);
+    const sy = Math.sign(my);
+    const keep = (p.fx !== 0 && p.fx === sx && ax >= ay * 0.5) || (p.fy !== 0 && p.fy === sy && ay >= ax * 0.5);
+    if (keep) return;
+    if (ax >= ay) p.face(sx, 0);
+    else p.face(0, sy);
+  }
+
+  /** 玩家的移动：分轴碰撞，再加上拐角修正——只朝一个方向走时，差几个像素就能对上通道的话自动挪过去 */
+  private movePlayer(dx: number, dy: number, mx: number, my: number): void {
+    const p = this.player;
+    const blockedX = dx !== 0 && !this.boxFree(p.x + dx, p.y, p.hw, p.hh);
+    const blockedY = dy !== 0 && !this.boxFree(p.x, p.y + dy, p.hw, p.hh);
+    this.move(p, dx, dy, p.hw, p.hh);
+    if (blockedX) p.vx = 0;
+    if (blockedY) p.vy = 0;
+    const push = Math.max(Math.abs(dx), Math.abs(dy), 0.6);
+    const nudge = (along: 'x' | 'y', d: number) => {
+      for (let k = 1; k <= CORNER_NUDGE; k++) {
+        for (const sgn of [-1, 1]) {
+          const tx = along === 'x' ? p.x + d : p.x + sgn * k;
+          const ty = along === 'x' ? p.y + sgn * k : p.y + d;
+          if (!this.boxFree(tx, ty, p.hw, p.hh)) continue;
+          const step = sgn * Math.min(k, push);
+          if (along === 'x' && this.boxFree(p.x, p.y + step, p.hw, p.hh)) p.y += step;
+          else if (along === 'y' && this.boxFree(p.x + step, p.y, p.hw, p.hh)) p.x += step;
+          return;
+        }
+      }
+    };
+    if (blockedX && Math.abs(my) < 0.2) nudge('x', Math.sign(dx) * push);
+    if (blockedY && Math.abs(mx) < 0.2) nudge('y', Math.sign(dy) * push);
+  }
+
+  private footstep(): void {
+    const p = this.player;
+    audio.sfx('step');
+    if (!p.running) return;
+    const [tx, ty] = p.tile();
+    const t = this.map.get(tx, ty);
+    const winter = seasonOf(this.s.day) === 3 && this.mode === 'town';
+    const color = this.mode === 'mine' ? '#6b5f58' : winter ? '#eef4f8' : t === Tile.PATH || t === Tile.SAND ? '#d9bb83' : '#9fc77a';
+    for (let i = 0; i < 3; i++) {
+      this.fx.particles.push({ x: p.x + (Math.random() - 0.5) * 6, y: p.y + 2, vx: -p.vx * 0.15 + (Math.random() - 0.5) * 20, vy: -10 - Math.random() * 12, t: 0.35, c: color, g: 60 });
+    }
+  }
+
   private updateHud(): void {
     const s = this.s;
-    const C = classOf(s);
     const seed = currentSeed(this);
     const slots: HudSlot[] = [
       { icon: toolIcons.hoe, label: '锄头' },
@@ -234,14 +333,28 @@ export class PlayScene implements Scene, EnemyHost {
       weather: WEATHER_NAME[s.weather],
       gold: s.gold,
       where: this.mode === 'town' ? '萤石谷' : `矿脉 ${this.floor}F · ${floorName(this.floor)}`,
-      cls: C.name,
-      skill: C.skill.name,
-      skillCd: this.player.skillCd,
+      level: s.level,
+      xp: s.xp,
+      xpNext: s.level >= 20 ? 0 : xpToNext(s.level),
+      skills: SKILLS[s.cls].map((k, i) => ({ name: k.name, key: ['L', 'U', 'O'][i], cd: this.player.skillCds[i], max: k.cooldown, need: s.level < k.level ? k.level : null })),
+      buffs: this.buffLabels(),
       slots,
       selected: s.tool,
       quest,
       boss: boss ? { name: boss.name, hp: boss.hp, max: boss.maxHp } : null,
     });
+  }
+
+  /** HUD 上显示的增益：料理效果和战斗中的临时技能效果 */
+  private buffLabels(): string[] {
+    const s = this.s;
+    const p = this.player;
+    const out: string[] = [];
+    if (s.buff && s.time < s.buff.until) out.push(`${ITEMS[s.buff.from].name}：${BUFF_TEXT[s.buff.stat](s.buff.value)} 到 ${clockText(s.buff.until)}`);
+    if (p.rageT > 0) out.push(`战吼 ${Math.ceil(p.rageT)}s`);
+    if (p.venomT > 0) out.push(`毒刃 ${Math.ceil(p.venomT)}s`);
+    if (p.swarmT > 0) out.push(`萤灵增殖 ${Math.ceil(p.swarmT)}s`);
+    return out;
   }
 
   render(): void {
@@ -253,7 +366,7 @@ export class PlayScene implements Scene, EnemyHost {
   private blocked(tx: number, ty: number, fly: boolean): boolean {
     if (fly) return this.map.get(tx, ty) === Tile.ROCK;
     if (this.map.solid(tx, ty)) return true;
-    if (this.mode === 'mine') return this.ores.some((o) => o.tx === tx && o.ty === ty);
+    if (this.mode === 'mine') return this.ores.some((o) => o.tx === tx && o.ty === ty) || this.chests.some((c) => c.tx === tx && c.ty === ty);
     return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty);
   }
 
@@ -331,13 +444,15 @@ export class PlayScene implements Scene, EnemyHost {
   /* ---------- 地图切换 ---------- */
 
   npcFace(id: NpcId): Img {
-    return npcSprites[id];
+    return npcChars[id].portrait;
   }
 
   private resetWorld(): void {
     this.enemies = [];
     this.ores = [];
     this.shots = [];
+    this.strikes = [];
+    this.chests = [];
     this.hazards = [];
     this.crystals = [];
     this.npcs = [];
@@ -352,7 +467,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.floor = 0;
     this.layout = null;
     this.map = this.overworld.map;
-    this.npcs = NPC_IDS.map((id) => new Npc(id));
+    this.npcs = NPC_IDS.map((id) => new Npc(id, this.s.time));
     this.player.place(spawn[0], spawn[1]);
     this.player.face(0, fy);
     this.setMusic();
@@ -374,6 +489,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.ores = L.ores.map((o) => new Ore(o.tx, o.ty, o.item));
     this.enemies = L.monsters.map((m) => new Monster(m.id, m.tx * TS + 8, m.ty * TS + 10, n));
     this.crystals = L.crystals;
+    this.chests = L.chests.map(([tx, ty]) => ({ tx, ty, open: false }));
     this.player.place(L.spawn[0], L.spawn[1]);
     this.player.face(0, 1);
     this.floorBanner = 2.5;
@@ -455,7 +571,9 @@ export class PlayScene implements Scene, EnemyHost {
     const withered = advanceDay(s);
     s.time = DAY_START;
     s.en = 100;
+    s.buff = null;
     s.hp = this.maxHp;
+    spawnForage(s, this.overworld.forage);
     this.enterTown(this.overworld.spawns.home, 1);
     const msgs: string[] = [];
     if (seasonOf(s.day) !== prevSeason) msgs.push(SEASON_GREETING[seasonOf(s.day)]);

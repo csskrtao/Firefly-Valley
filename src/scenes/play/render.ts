@@ -4,18 +4,24 @@ import type { CropId } from '../../data/crops';
 import { CROPS } from '../../data/crops';
 import { floorName, zoneFor } from '../../data/floors';
 import { WEAPON_TIERS } from '../../data/equipment';
+import type { ItemDef, ItemId } from '../../data/items';
+import { ITEMS } from '../../data/items';
+import type { Img } from '../../gfx/sprite';
 import { draw } from '../../gfx/sprite';
-import { playerSprites, treeSprite, treeSpriteAutumn, treeSpriteWinter } from '../../gfx/sprites';
+import { TREE_H, benchTile, bridgeTile, bushTiles, chestImg, forageGlyph, forestTiles, lampImgs, sandTile, signTiles, stoneTiles, tallTrees } from '../../gfx/decor';
+import { CHAR_FOOT, frameFor, walkFrame } from '../../gfx/character';
+import { npcChars, playerChar } from '../../gfx/people';
 import {
   binTile, caveTile, cliffTile, fenceTiles, fieldTile, flowerTiles, grassTiles, mineTiles, oreImg, pathTile, plazaTile, tilledTile, wetTile,
 } from '../../gfx/tiles';
 import { seasonOf } from '../../state/save';
 import { nightAlpha } from '../../systems/time';
-import { classOf } from '../../systems/stats';
+import { weaponTypeOf } from '../../systems/stats';
+import { isRanged } from '../../data/weapons';
 import type { Building } from '../../world/overworld';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
-import { orbPos } from './combat';
+import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
 
 const dark = document.createElement('canvas');
 dark.width = VW;
@@ -25,10 +31,12 @@ const dk = dark.getContext('2d')!;
 export function renderPlay(sc: PlayScene): void {
   const { b } = sc.game.renderer;
   const map = sc.map;
-  sc.camera.follow(sc.player.x, sc.player.y - 8, map.w * TS, map.h * TS);
+  sc.camera.follow(sc.player.x, sc.player.y - 10, map.w * TS, map.h * TS);
   const cx = sc.camera.ox;
   const cy = sc.camera.oy;
   const season = seasonOf(sc.s.day);
+  const town = sc.mode === 'town';
+  const ow = sc.overworld;
 
   b.fillStyle = '#0b0910';
   b.fillRect(0, 0, VW, VH);
@@ -37,15 +45,22 @@ export function renderPlay(sc: PlayScene): void {
   const y0 = Math.max(0, Math.floor(cy / TS));
   const x1 = Math.min(map.w - 1, Math.floor((cx + VW) / TS));
   const y1 = Math.min(map.h - 1, Math.floor((cy + VH) / TS));
-  const mt = sc.mode === 'mine' ? mineTiles(sc.floor === zoneFor(sc.floor).boss.floor ? zoneFor(sc.floor).boss.pal : zoneFor(sc.floor).pal) : null;
-  const tree = season === 3 ? treeSpriteWinter : season === 2 ? treeSpriteAutumn : treeSprite;
+  const mt = town ? null : mineTiles(sc.floor === zoneFor(sc.floor).boss.floor ? zoneFor(sc.floor).boss.pal : zoneFor(sc.floor).pal);
+  const night = nightAlpha(sc.s.time) > 0.25;
 
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
+  // 按 y 排序绘制，前后遮挡正确。高过一格的东西（树、路灯、房子）也放进来
+  const list: { y: number; d: () => void }[] = [];
+  const inForest = (x: number, y: number) => x >= ow.forest[0] && x <= ow.forest[2] && y >= ow.forest[1] && y <= ow.forest[3];
+
+  // 树冠会伸到上面一格多，所以多扫两行
+  for (let y = y0; y <= Math.min(map.h - 1, y1 + 2); y++) {
+    for (let x = Math.max(0, x0 - 1); x <= Math.min(map.w - 1, x1 + 1); x++) {
       const t = map.get(x, y);
       const px = x * TS - cx;
       const py = y * TS - cy;
+      const visible = y <= y1 && x >= x0 && x <= x1;
       if (mt) {
+        if (!visible) continue;
         if (t === Tile.ROCK) b.drawImage(mt.wall, px, py);
         else {
           b.drawImage(mt.floor[hash(x, y) < 0.5 ? 0 : 1], px, py);
@@ -54,19 +69,34 @@ export function renderPlay(sc: PlayScene): void {
         }
         continue;
       }
+      if (t === Tile.TREE) {
+        const img = tallTrees[season][inForest(x, y) ? (hash(x, y * 3) < 0.55 ? 2 : Math.floor(hash(x * 5, y) * 2)) : hash(x * 5, y) < 0.15 ? 2 : Math.floor(hash(x * 5, y) * 2)];
+        list.push({ y: y * TS + 14, d: () => b.drawImage(img, px - 4, py + TS - TREE_H) });
+      } else if (t === Tile.LAMP) {
+        list.push({ y: y * TS + 14, d: () => b.drawImage(night ? lampImgs.on : lampImgs.off, px, py - 16) });
+      }
+      if (!visible) continue;
       const grass = grassTiles[season][Math.floor(hash(x, y) * 3)];
       switch (t) {
         case Tile.GRASS: b.drawImage(grass, px, py); break;
+        case Tile.FOREST: b.drawImage(forestTiles[season][hash(x, y) < 0.5 ? 0 : 1], px, py); break;
         case Tile.PATH: case Tile.WALL: case Tile.DOOR: b.drawImage(pathTile, px, py); break;
         case Tile.PLAZA: b.drawImage(plazaTile, px, py); break;
+        case Tile.SAND: b.drawImage(sandTile, px, py); break;
         case Tile.WATER: case Tile.FOUNTAIN: drawWater(sc, x, y, px, py, t === Tile.FOUNTAIN, season); break;
-        case Tile.TREE: b.drawImage(grass, px, py); b.drawImage(tree, px, py); break;
+        case Tile.BRIDGE: drawBridge(sc, x, y, px, py, season); break;
+        case Tile.TREE: b.drawImage(inForest(x, y) ? forestTiles[season][0] : grass, px, py); break;
+        case Tile.LAMP: b.drawImage(map.get(x, y - 1) === Tile.PLAZA || map.get(x, y + 1) === Tile.PLAZA ? plazaTile : grass, px, py); break;
         case Tile.FIELD: b.drawImage(fieldTile, px, py); break;
         case Tile.FENCE: b.drawImage(fenceTiles[season], px, py); break;
-        case Tile.FLOWER: b.drawImage(flowerTiles[season][Math.floor(hash(y, x) * 2)], px, py); break;
+        case Tile.FLOWER: b.drawImage(inForest(x, y) ? forestTiles[season][1] : grass, px, py); b.drawImage(flowerTiles[season][Math.floor(hash(y, x) * 2)], px, py); break;
         case Tile.CAVE: b.drawImage(caveTile, px, py); break;
         case Tile.CLIFF: case Tile.ROCK: b.drawImage(cliffTile, px, py); break;
         case Tile.BIN: b.drawImage(binTile, px, py); break;
+        case Tile.BUSH: b.drawImage(bushTiles[season], px, py); break;
+        case Tile.STONE: b.drawImage(stoneTiles[season], px, py); break;
+        case Tile.SIGN: b.drawImage(signTiles[season], px, py); break;
+        case Tile.BENCH: b.drawImage(plazaTile, px, py); b.drawImage(benchTile, px, py); break;
       }
       if (t === Tile.FIELD) {
         const f = sc.s.field[`${x},${y}`];
@@ -77,15 +107,29 @@ export function renderPlay(sc: PlayScene): void {
       }
     }
   }
-  if (sc.mode === 'town') for (const bd of sc.overworld.buildings) drawBuilding(sc, bd, cx, cy);
+  if (town) {
+    for (const bd of ow.buildings) {
+      const bx = bd.x * TS - cx;
+      const by = bd.y * TS - cy;
+      if (bx > VW + 8 || by > VH + 8 || bx + bd.w * TS < -8 || by + bd.h * TS < -40) continue;
+      list.push({ y: (bd.y + bd.h) * TS - 1, d: () => drawBuilding(sc, bd, cx, cy) });
+    }
+    // 地上的采集物
+    for (const [k, id] of Object.entries(sc.s.forage)) {
+      const [x, y] = k.split(',').map(Number);
+      if (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1) continue;
+      const bob = Math.round(Math.sin(sc.clock * 3 + x + y) * 0.6);
+      b.drawImage(forageImg(id), x * TS - cx, y * TS - cy + bob);
+    }
+  }
 
   // 面前可交互格子的提示框
   if (!sc.ui.modal) {
     const [tx, ty] = sc.player.frontTile();
     const t = map.get(tx, ty);
-    const show = sc.mode === 'town'
-      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE
-      : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty);
+    const show = town
+      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN
+      : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty) || sc.chests.some((c) => !c.open && c.tx === tx && c.ty === ty);
     if (show) {
       b.strokeStyle = 'rgba(255,255,255,.55)';
       b.lineWidth = 1;
@@ -121,33 +165,27 @@ export function renderPlay(sc: PlayScene): void {
     }
   }
 
-  // 按 y 排序绘制，前后遮挡正确
-  const list: { y: number; d: () => void }[] = [];
   for (const n of sc.npcs) {
     list.push({
       y: n.y,
       d: () => {
-        const img = sc.npcFace(n.id);
-        const bob = n.walking ? Math.floor(sc.clock * 8) % 2 : Math.floor(Math.sin(sc.clock * 2 + n.phase) * 0.6);
+        const { img, flip } = frameFor(npcChars[n.id], n.fx, n.fy, walkFrame(n.walking, n.walk));
         b.fillStyle = 'rgba(0,0,0,.25)';
-        b.fillRect(Math.round(n.x - cx - 5), Math.round(n.y - cy + 3), 10, 2);
-        draw(b, img, n.x - 8 - cx, n.y - 15 - cy + bob, sc.player.x < n.x && n.id !== 'owl');
+        b.fillRect(Math.round(n.x - cx - 5), Math.round(n.y - cy + 1), 10, 3);
+        draw(b, img, n.x - 8 - cx, n.y + 2 - CHAR_FOOT - cy, flip);
       },
     });
   }
   for (const o of sc.ores) list.push({ y: o.ty * TS + 14, d: () => draw(b, oreImg(o.item), o.tx * TS - cx + (o.shake > 0 ? rnd(-1, 1) : 0), o.ty * TS - cy) });
+  for (const c of sc.chests) list.push({ y: c.ty * TS + 14, d: () => b.drawImage(chestImgs[c.open ? 1 : 0], c.tx * TS - cx, c.ty * TS - cy) });
   for (const e of sc.enemies) list.push({ y: e.y, d: () => e.draw(b, cx, cy, sc.clock) });
   list.push({ y: sc.player.y, d: () => drawPlayer(sc, cx, cy) });
   list.sort((a, c) => a.y - c.y).forEach((o) => o.d());
 
-  for (const s of sc.shots) {
-    b.fillStyle = s.color;
-    b.fillRect(Math.round(s.x - cx - 2), Math.round(s.y - cy - 2), 4, 4);
-    b.fillStyle = '#fff';
-    b.fillRect(Math.round(s.x - cx - 1), Math.round(s.y - cy - 1), 2, 2);
-  }
+  for (const s of sc.shots) drawShot(b, s, cx, cy);
+  drawStrikes(sc, b, cx, cy);
   if (sc.s.cls === 'spirit') {
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < orbCount(sc); i++) {
       const [ox, oy] = orbPos(sc, i);
       b.fillStyle = 'rgba(98,240,214,.35)';
       b.fillRect(Math.round(ox - cx - 3), Math.round(oy - cy - 3), 6, 6);
@@ -159,7 +197,10 @@ export function renderPlay(sc: PlayScene): void {
   }
   sc.fx.drawWorld(b, cx, cy);
 
-  if (sc.mode === 'town') drawWeather(sc);
+  if (town) {
+    drawFireflies(sc, cx, cy);
+    drawWeather(sc);
+  }
   drawLighting(sc, cx, cy);
 
   sc.game.renderer.present();
@@ -167,6 +208,55 @@ export function renderPlay(sc: PlayScene): void {
   if (sc.mode === 'mine' && sc.floorBanner > 0) {
     const a = Math.min(1, sc.floorBanner);
     sc.game.renderer.text(`第 ${sc.floor} 层 · ${floorName(sc.floor)}`, VW / 2, VH * 0.32, '#f4ecd8', 11, a, '"ZCOOL QingKe HuangYou", "Noto Sans SC", sans-serif', 400);
+  }
+}
+
+const chestImgs = [chestImg(false), chestImg(true)];
+
+const forageCache = new Map<ItemId, Img>();
+function forageImg(id: ItemId): Img {
+  let img = forageCache.get(id);
+  if (!img) {
+    const d = ITEMS[id] as ItemDef;
+    img = forageGlyph(d.color, d.glyph ?? 'plant');
+    forageCache.set(id, img);
+  }
+  return img;
+}
+
+function drawBridge(sc: PlayScene, x: number, y: number, px: number, py: number, season: number): void {
+  const { b } = sc.game.renderer;
+  drawWater(sc, x, y, px, py, false, season);
+  b.drawImage(bridgeTile, px, py);
+  const map = sc.map;
+  b.fillStyle = '#5a3a22';
+  if (map.get(x - 1, y) !== Tile.BRIDGE) {
+    b.fillRect(px, py, 2, 16);
+    b.fillStyle = '#8a6038';
+    b.fillRect(px, py + 1, 2, 2);
+    b.fillStyle = '#5a3a22';
+  }
+  if (map.get(x + 1, y) !== Tile.BRIDGE) b.fillRect(px + 14, py, 2, 16);
+}
+
+/** 夏天和秋天的夜里，萤火森林里飞着萤火虫 */
+function drawFireflies(sc: PlayScene, cx: number, cy: number): void {
+  const a = nightAlpha(sc.s.time);
+  const season = seasonOf(sc.s.day);
+  if (a < 0.2 || season === 3) return;
+  const { b } = sc.game.renderer;
+  const [fx0, fy0, fx1, fy1] = sc.overworld.forest;
+  const n = season === 1 ? 70 : 36;
+  const t = sc.clock;
+  for (let i = 0; i < n; i++) {
+    const x = (fx0 + hash(i, 41) * (fx1 - fx0)) * TS + Math.sin(t * 0.7 + i) * 14 - cx;
+    const y = (fy0 + 8 + hash(43, i) * (fy1 - fy0 - 8)) * TS + Math.cos(t * 0.9 + i * 2) * 10 - cy;
+    if (x < -4 || y < -4 || x > VW + 4 || y > VH + 4) continue;
+    const glow = 0.5 + 0.5 * Math.sin(t * 3 + i * 1.7);
+    b.fillStyle = `rgba(200,255,150,${0.5 * glow})`;
+    b.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
+    b.fillStyle = `rgba(240,255,200,${0.4 + 0.6 * glow})`;
+    b.fillRect(Math.round(x), Math.round(y), 1, 1);
   }
 }
 
@@ -180,13 +270,17 @@ function drawWater(sc: PlayScene, x: number, y: number, px: number, py: number, 
   const o = Math.floor((sc.clock * (frozen ? 0 : 6) + x * 5 + y * 3) % 16);
   b.fillRect(px + (o % 12), py + 4 + (y % 2) * 6, 4, 1);
   b.fillRect(px + ((o + 7) % 12), py + 10 - (x % 2) * 4, 3, 1);
-  const same = (t: number) => t === Tile.WATER || t === Tile.FOUNTAIN;
-  const edge = fountain ? '#8f8a88' : grassTiles[season][0] && ['#5d9e3f', '#4f9a3a', '#9a9a44', '#dfe8ee'][season];
-  b.fillStyle = edge;
-  if (!same(map.get(x, y - 1))) b.fillRect(px, py, 16, 2);
-  if (!same(map.get(x - 1, y))) b.fillRect(px, py, 2, 16);
-  if (!same(map.get(x + 1, y))) b.fillRect(px + 14, py, 2, 16);
-  if (!same(map.get(x, y + 1))) b.fillRect(px, py + 14, 16, 2);
+  const same = (t: number) => t === Tile.WATER || t === Tile.FOUNTAIN || t === Tile.BRIDGE;
+  const grassEdge = ['#5d9e3f', '#4f9a3a', '#9a9a44', '#dfe8ee'][season];
+  const edge = (t: number) => (fountain ? '#8f8a88' : t === Tile.SAND ? '#e8d4a0' : t === Tile.FOREST ? '#3f7f34' : grassEdge);
+  const n = map.get(x, y - 1);
+  const w = map.get(x - 1, y);
+  const e = map.get(x + 1, y);
+  const s2 = map.get(x, y + 1);
+  if (!same(n)) { b.fillStyle = edge(n); b.fillRect(px, py, 16, 2); }
+  if (!same(w)) { b.fillStyle = edge(w); b.fillRect(px, py, 2, 16); }
+  if (!same(e)) { b.fillStyle = edge(e); b.fillRect(px + 14, py, 2, 16); }
+  if (!same(s2)) { b.fillStyle = edge(s2); b.fillRect(px, py + 14, 16, 2); }
   if (fountain && (x + y) % 2 === 0) {
     const k = (sc.clock * 2 + x) % 1;
     b.fillStyle = '#cfe8ff';
@@ -277,23 +371,45 @@ function drawBuilding(sc: PlayScene, B: Building, cx: number, cy: number): void 
   const y = B.y * TS - cy;
   const w = B.w * TS;
   const hgt = B.h * TS;
-  const roofH = hgt - TS * 2 + 4;
+  const wallH = hgt >= 80 ? 42 : 36;
+  const roofH = hgt - wallH;
+  const wy = y + roofH;
   const winter = seasonOf(sc.s.day) === 3;
-  b.fillStyle = B.wall;
-  b.fillRect(x + 2, y + roofH - 4, w - 4, hgt - roofH + 4);
-  b.fillStyle = 'rgba(0,0,0,.12)';
-  for (let yy = y + roofH; yy < y + hgt; yy += 4) b.fillRect(x + 2, yy, w - 4, 1);
-  b.fillStyle = B.roof;
-  b.fillRect(x - 2, y, w + 4, roofH);
-  b.fillStyle = 'rgba(0,0,0,.18)';
-  for (let yy = y + 4; yy < y + roofH; yy += 5) b.fillRect(x - 2, yy, w + 4, 1);
-  b.fillStyle = winter ? '#f4f8fb' : 'rgba(255,255,255,.18)';
-  b.fillRect(x - 2, y, w + 4, winter ? 5 : 2);
-  b.fillStyle = 'rgba(0,0,0,.3)';
-  b.fillRect(x - 2, y + roofH, w + 4, 2);
+  const night = sc.s.time > 1080;
+  const f = (c: string, xx: number, yy: number, ww: number, hh: number) => {
+    b.fillStyle = c;
+    b.fillRect(xx, yy, ww, hh);
+  };
+  // 墙：铁匠铺是石墙，其余是木板墙
+  f('rgba(0,0,0,.25)', x, y + hgt - 2, w, 3);
+  f(B.wall, x + 1, wy - 2, w - 2, wallH + 2);
+  if (B.kind === 'smith') {
+    for (let yy = 0; yy < wallH; yy += 5) {
+      f('rgba(0,0,0,.18)', x + 1, wy + yy, w - 2, 1);
+      for (let xx = (yy / 5) % 2 ? 4 : 9; xx < w - 2; xx += 10) f('rgba(0,0,0,.18)', x + xx, wy + yy, 1, 5);
+    }
+  } else {
+    for (let yy = wy + 3; yy < y + hgt; yy += 4) f('rgba(0,0,0,.1)', x + 1, yy, w - 2, 1);
+  }
+  f('rgba(0,0,0,.22)', x + 1, wy, 2, wallH);
+  f('rgba(0,0,0,.22)', x + w - 3, wy, 2, wallH);
+  f('rgba(0,0,0,.28)', x + 1, wy, w - 2, 3);
+
+  // 屋顶：一排排错开的瓦片，屋檐比墙宽一点
+  f(B.roof, x - 3, y, w + 6, roofH);
+  for (let r = 0, yy = y + 3; yy < y + roofH - 1; yy += 4, r++) {
+    f('rgba(0,0,0,.2)', x - 3, yy, w + 6, 1);
+    for (let xx = (r % 2) * 4; xx < w + 6; xx += 8) f('rgba(0,0,0,.14)', x - 3 + xx, yy - 3, 1, 3);
+  }
+  f('rgba(255,255,255,.18)', x - 3, y, w + 6, 2);
+  if (winter) {
+    f('#f4f8fb', x - 3, y, w + 6, 5);
+    f('#dfe8ee', x - 3, y + 5, w + 6, 1);
+  }
+  f('rgba(0,0,0,.35)', x - 3, y + roofH - 2, w + 6, 2);
   if (B.chimney) {
-    b.fillStyle = '#5a4a44';
-    b.fillRect(x + w - 18, y - 8, 8, 12);
+    f('#5a4a44', x + w - 18, y - 8, 8, 14);
+    f('#7a6a64', x + w - 18, y - 8, 8, 2);
     for (let i = 0; i < 3; i++) {
       const p = (sc.clock * 0.6 + i / 3) % 1;
       b.fillStyle = `rgba(200,200,210,${0.5 * (1 - p)})`;
@@ -302,51 +418,66 @@ function drawBuilding(sc: PlayScene, B: Building, cx: number, cy: number): void 
       b.fill();
     }
   }
+
+  // 门：比一格高，门框、门板、把手和台阶
   const dx = B.door[0] * TS - cx;
   const dy = B.door[1] * TS - cy;
-  b.fillStyle = '#4a2e1a';
-  b.fillRect(dx + 3, dy + 2, 10, 14);
-  b.fillStyle = '#6b4428';
-  b.fillRect(dx + 4, dy + 3, 8, 13);
-  b.fillStyle = '#ffd34d';
-  b.fillRect(dx + 10, dy + 9, 1, 2);
-  const night = sc.s.time > 1080;
-  for (const wx of [x + 6, x + w - 18]) {
-    if (Math.abs(wx - dx) < 12) continue;
-    b.fillStyle = '#3a2a1a';
-    b.fillRect(wx, y + roofH + 4, 12, 9);
-    b.fillStyle = night ? '#ffd98a' : '#9fd0e8';
-    b.fillRect(wx + 1, y + roofH + 5, 10, 7);
-    b.fillStyle = '#3a2a1a';
-    b.fillRect(wx + 5, y + roofH + 5, 1, 7);
+  f('#3a2414', dx + 1, dy - 8, 14, 24);
+  f(B.kind === 'house' && B.name === '空屋' ? '#5a4a3a' : '#6b4428', dx + 3, dy - 6, 10, 22);
+  f('rgba(0,0,0,.2)', dx + 7, dy - 6, 1, 22);
+  f('rgba(255,255,255,.12)', dx + 3, dy - 6, 10, 1);
+  f('#ffd34d', dx + 10, dy + 3, 2, 2);
+  f('#8f8a88', dx, dy + 14, 16, 2);
+
+  // 窗户：白天反光，晚上亮着暖光
+  const winY = wy + 8;
+  for (const wx of [x + 6, x + w - 20, ...(B.w >= 7 ? [x + 22] : [])]) {
+    if (Math.abs(wx + 7 - (dx + 8)) < 14) continue;
+    f('#3a2a1a', wx, winY, 14, 12);
+    f(night && B.name !== '空屋' ? '#ffd98a' : '#9fd0e8', wx + 1, winY + 1, 12, 10);
+    if (!night) f('rgba(255,255,255,.45)', wx + 2, winY + 2, 3, 2);
+    f('#3a2a1a', wx + 6, winY + 1, 2, 10);
+    f('#3a2a1a', wx + 1, winY + 5, 12, 1);
+    f('#6b4a2b', wx - 1, winY + 12, 16, 2);
+    // 窗台上的花
+    if (!winter && B.kind !== 'smith') {
+      f('#3e9a3a', wx + 1, winY + 10, 12, 2);
+      f(B.kind === 'clinic' ? '#e05a7a' : '#ffcf5a', wx + 3, winY + 10, 2, 1);
+      f('#ff8fb3', wx + 9, winY + 10, 2, 1);
+    }
   }
-  if (B.kind !== 'home') {
-    b.fillStyle = '#3a2a1a';
-    b.fillRect(dx - 1, dy - 7, 18, 7);
+
+  // 招牌
+  if (B.kind !== 'home' && B.kind !== 'house') {
+    const sx = dx - 2;
+    const sy = dy - 17;
+    f('#3a2a1a', sx, sy, 20, 8);
+    f('#5a3e26', sx + 1, sy + 1, 18, 6);
     switch (B.kind) {
       case 'smith':
-        b.fillStyle = '#c9d4e0';
-        b.fillRect(dx + 4, dy - 5, 8, 2);
-        b.fillRect(dx + 6, dy - 3, 4, 2);
+        f('#c9d4e0', sx + 6, sy + 2, 8, 2);
+        f('#c9d4e0', sx + 8, sy + 4, 4, 2);
         break;
       case 'shop':
-        b.fillStyle = '#ffcf5a';
-        b.fillRect(dx + 5, dy - 5, 6, 3);
-        b.fillRect(dx + 7, dy - 6, 2, 1);
+        f('#ffcf5a', sx + 7, sy + 2, 6, 4);
+        f('#ffcf5a', sx + 9, sy + 1, 2, 1);
         break;
       case 'clinic':
-        b.fillStyle = '#e05a7a';
-        b.fillRect(dx + 7, dy - 6, 2, 5);
-        b.fillRect(dx + 5, dy - 4, 6, 1);
+        f('#e05a7a', sx + 9, sy + 1, 2, 6);
+        f('#e05a7a', sx + 7, sy + 3, 6, 2);
         break;
       case 'guild':
-        b.fillStyle = '#dfe6ee';
-        b.fillRect(dx + 7, dy - 6, 1, 5);
-        b.fillRect(dx + 5, dy - 4, 5, 1);
-        b.fillStyle = '#ffd34d';
-        b.fillRect(dx + 9, dy - 6, 2, 2);
+        f('#dfe6ee', sx + 9, sy + 1, 1, 6);
+        f('#dfe6ee', sx + 7, sy + 3, 5, 1);
+        f('#ffd34d', sx + 11, sy + 1, 2, 2);
         break;
     }
+  }
+  if (B.kind === 'smith') {
+    // 门口的铁砧
+    f('#3a3a44', dx + 18, dy + 8, 10, 4);
+    f('#55555f', dx + 17, dy + 6, 12, 3);
+    f('#2a2a30', dx + 20, dy + 12, 6, 3);
   }
 }
 
@@ -354,78 +485,108 @@ function drawPlayer(sc: PlayScene, cx: number, cy: number): void {
   const { b } = sc.game.renderer;
   const p = sc.player;
   const s = sc.s;
-  const set = playerSprites[s.armor.tier];
-  const back = p.fy < 0;
-  const frames = back ? set.back : set.front;
-  const fr = p.moving ? Math.floor(p.walk) % 2 : 0;
   if (p.inv > 0 && p.dashT <= 0 && Math.floor(p.inv * 14) % 2) {
     drawSwing(sc, cx, cy);
     return;
   }
   b.fillStyle = 'rgba(0,0,0,.25)';
-  b.fillRect(Math.round(p.x - cx - 5), Math.round(p.y - cy + 3), 10, 2);
+  b.fillRect(Math.round(p.x - cx - 5), Math.round(p.y - cy + 1), 10, 3);
+  const { img, flip } = frameFor(playerChar(s.cls, s.armor.tier), p.fx, p.fy, walkFrame(p.moving, p.walk));
   const sx = Math.round(p.x - 8 - cx);
-  const sy = Math.round(p.y - 15 - cy - (p.moving && fr ? 1 : 0));
+  const sy = Math.round(p.y + 2 - CHAR_FOOT - cy);
+  // 背对镜头时武器在身后
+  const behind = p.fy < 0 && !p.fx;
+  if (behind && p.atkT <= 0) heldWeapon(sc, cx, cy);
   if (p.dashT > 0) b.globalAlpha = 0.55;
-  draw(b, frames[fr], sx, sy, p.fx < 0);
-  classLook(sc, sx, sy, back);
+  draw(b, img, sx, sy, flip);
   b.globalAlpha = 1;
-  if (p.atkT <= 0) heldWeapon(sc, cx, cy);
+  if (!behind && p.atkT <= 0) heldWeapon(sc, cx, cy);
   drawSwing(sc, cx, cy);
   if (s.armor.plus >= 5 && Math.sin(sc.clock * 5) > 0.85) {
     b.fillStyle = '#fff';
-    b.fillRect(Math.round(p.x - cx - 3), Math.round(p.y - cy - 7), 1, 1);
+    b.fillRect(Math.round(p.x - cx - 3), Math.round(p.y - cy - 12), 1, 1);
   }
 }
 
-function classLook(sc: PlayScene, sx: number, sy: number, back: boolean): void {
-  const { b } = sc.game.renderer;
-  const f = (c: string, x: number, y: number, w: number, h: number) => {
-    b.fillStyle = c;
-    b.fillRect(sx + x, sy + y, w, h);
-  };
-  switch (sc.s.cls) {
-    case 'mage':
-      f('#5b3fa8', 3, 1, 10, 2); f('#6a4ab8', 5, -2, 6, 3); f('#6a4ab8', 6, -5, 4, 3); f('#7d5cd0', 7, -7, 2, 2); f('#ffd34d', 5, 0, 6, 1);
-      break;
-    case 'rogue':
-      f('#2a2436', 4, 0, 8, 3); f('#2a2436', 3, 2, 1, 4); f('#2a2436', 12, 2, 1, 4);
-      if (!back) f('#8a2030', 4, 5, 8, 2);
-      break;
-    case 'spirit':
-      f('#62f0d6', 4, 0, 8, 3); f('#c8fff4', 6, 0, 3, 1);
-      if (!back) f('#62f0d6', 5, 8, 6, 1);
-      break;
-    default:
-      f('#c0392b', 4, 2, 8, 1); f('#c0392b', sc.player.fx < 0 ? 12 : 2, 2, 2, 3);
-  }
-}
-
+/** 手里拿着的武器，按武器类型画 */
 function heldWeapon(sc: PlayScene, cx: number, cy: number): void {
   const { b } = sc.game.renderer;
   const p = sc.player;
-  if (p.fy < 0 && !p.fx) return;
   const w = WEAPON_TIERS[sc.s.weapon.tier];
-  const sx = Math.round(p.x - cx + (p.fx < 0 ? -7 : 6));
-  const sy = Math.round(p.y - cy - 8);
-  switch (sc.s.cls) {
-    case 'mage':
-      b.fillStyle = '#6b4a2b'; b.fillRect(sx, sy - 10, 1, 13);
-      b.fillStyle = w.color; b.fillRect(sx - 1, sy - 12, 3, 3);
-      if (p.castT > 0) { b.fillStyle = '#fff'; b.fillRect(sx - 2, sy - 13, 5, 5); }
+  const hx = Math.round(p.x - cx + (p.fx > 0 ? 1 : p.fx < 0 ? -2 : p.fy < 0 ? -5 : 4));
+  const hy = Math.round(p.y - cy - 4);
+  const f = (c: string, x: number, y: number, ww: number, hh: number) => {
+    b.fillStyle = c;
+    b.fillRect(hx + x, hy + y, ww, hh);
+  };
+  const glow = p.castT > 0;
+  switch (sc.s.weaponType) {
+    case 'axe':
+      f('#6b4a2b', 0, -9, 1, 11);
+      f(w.color, p.fx < 0 ? -3 : 1, -9, 3, 4);
+      f('rgba(255,255,255,.5)', p.fx < 0 ? -3 : 3, -9, 1, 4);
       break;
-    case 'rogue':
-      b.fillStyle = w.color; b.fillRect(sx, sy - 3, 1, 4);
-      b.fillStyle = '#3a2a1a'; b.fillRect(sx - 1, sy + 1, 3, 1);
+    case 'spear':
+      f('#6b4a2b', 0, -13, 1, 16);
+      f(w.color, -1, -15, 3, 2);
+      f(w.color, 0, -17, 1, 2);
       break;
-    case 'spirit':
-      b.fillStyle = '#6b4a2b'; b.fillRect(sx, sy - 6, 1, 3);
-      b.fillStyle = w.color; b.fillRect(sx - 2, sy - 3, 5, 5);
-      b.fillStyle = p.castT > 0 ? '#fff' : '#62f0d6'; b.fillRect(sx - 1, sy - 2, 3, 3);
+    case 'staff':
+      f('#6b4a2b', 0, -10, 1, 13);
+      f(w.color, -1, -12, 3, 3);
+      if (glow) f('#fff', -2, -13, 5, 5);
+      break;
+    case 'tome':
+      f('#3a2a5a', -2, -3, 5, 6);
+      f(w.color, -1, -2, 3, 4);
+      f('#f4ecd8', -1, -3, 3, 1);
+      if (glow) f('#c39bff', -3, -6, 7, 2);
+      break;
+    case 'orb': {
+      const bob = Math.round(Math.sin(sc.clock * 4) * 1.5);
+      f('rgba(255,179,255,.35)', -3, -9 + bob, 7, 7);
+      f(w.color, -2, -8 + bob, 5, 5);
+      f(glow ? '#fff' : '#ffd6ff', -1, -7 + bob, 2, 2);
+      break;
+    }
+    case 'dagger':
+      f(w.color, 0, -3, 1, 4);
+      f('#3a2a1a', -1, 1, 3, 1);
+      break;
+    case 'twin':
+      f(w.color, 0, -3, 1, 4);
+      f('#3a2a1a', -1, 1, 3, 1);
+      if (!p.fx) {
+        const ox = p.fy < 0 ? 9 : -9;
+        f(w.color, ox, -3, 1, 4);
+        f('#3a2a1a', ox - 1, 1, 3, 1);
+      }
+      break;
+    case 'darts':
+      f(w.color, -1, -1, 3, 1);
+      f(w.color, 0, -2, 1, 3);
+      break;
+    case 'bell':
+      f('#6b4a2b', 0, -6, 1, 4);
+      f(w.color, -1, -3, 3, 3);
+      f(w.color, -2, -1, 5, 1);
+      f(glow ? '#fff' : '#62f0d6', 0, 0, 1, 1);
+      break;
+    case 'fan':
+      f('#6b4a2b', 0, -1, 1, 3);
+      f(w.color, -3, -5, 7, 3);
+      f(w.color, -2, -6, 5, 1);
+      f(glow ? '#fff' : '#62f0d6', -1, -5, 3, 1);
+      break;
+    case 'lantern':
+      f('#6b4a2b', 0, -6, 1, 3);
+      f(w.color, -2, -3, 5, 5);
+      f(glow ? '#fff' : '#62f0d6', -1, -2, 3, 3);
       break;
     default:
-      b.fillStyle = w.color; b.fillRect(sx, sy - 6, 1, 7);
-      b.fillStyle = '#6b4a2b'; b.fillRect(sx - 1, sy, 3, 1);
+      f(w.color, 0, -7, 1, 8);
+      f('rgba(255,255,255,.55)', 0, -7, 1, 2);
+      f('#6b4a2b', -1, 0, 3, 1);
   }
 }
 
@@ -433,7 +594,7 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
   const { b } = sc.game.renderer;
   const p = sc.player;
   const ox = p.x - cx;
-  const oy = p.y - 6 - cy;
+  const oy = p.y - 7 - cy;
   const w = WEAPON_TIERS[sc.s.weapon.tier];
   if (p.spinT > 0) {
     const a0 = sc.clock * 22;
@@ -442,18 +603,39 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
     b.strokeStyle = 'rgba(255,255,255,.7)'; b.lineWidth = 1;
     b.beginPath(); b.arc(ox, oy, 23, a0 + 1, a0 + 4); b.stroke();
   }
-  const C = classOf(sc.s);
-  if (p.atkT <= 0 || C.ranged) return;
+  const wt = weaponTypeOf(sc.s);
+  if (p.atkT <= 0 || isRanged(wt.kind)) return;
   const base = Math.atan2(p.fy, p.fx);
-  const k = 1 - p.atkT / 0.18;
-  const a0 = base - 1.2 + k * 0.4;
-  const a1 = a0 + k * 2.4;
-  const rr = C.reach ?? 12;
-  if (sc.s.weapon.plus >= 5) {
+  const rr = wt.reach ?? 12;
+  const kind = p.swingKind;
+  const total = kind === 'cleave' ? 0.26 : 0.18;
+  const k = 1 - p.atkT / total;
+  const glow = sc.s.weapon.plus >= 5;
+  if (kind === 'thrust') {
+    // 突刺：一道向前伸出的枪影
+    const len = rr * Math.min(1, k * 1.6);
+    const ex = ox + p.fx * len;
+    const ey = oy + p.fy * len;
+    if (glow) {
+      b.strokeStyle = 'rgba(98,240,214,.45)'; b.lineWidth = 5;
+      b.beginPath(); b.moveTo(ox, oy); b.lineTo(ex, ey); b.stroke();
+    }
+    b.strokeStyle = '#6b4a2b'; b.lineWidth = 1;
+    b.beginPath(); b.moveTo(ox, oy); b.lineTo(ex, ey); b.stroke();
+    b.fillStyle = w.color;
+    b.fillRect(Math.round(ex) - 2, Math.round(ey) - 2, 4, 4);
+    b.fillStyle = 'rgba(255,255,255,.7)';
+    b.fillRect(Math.round(ex + p.fx * 3) - 1, Math.round(ey + p.fy * 3) - 1, 2, 2);
+    return;
+  }
+  const span = kind === 'cleave' ? 4.2 : 2.4;
+  const a0 = base - span / 2 + k * 0.3;
+  const a1 = a0 + k * span;
+  if (glow) {
     b.strokeStyle = 'rgba(98,240,214,.45)'; b.lineWidth = 5;
     b.beginPath(); b.arc(ox, oy, rr, a0, a1); b.stroke();
   }
-  b.strokeStyle = w.color; b.lineWidth = 2;
+  b.strokeStyle = w.color; b.lineWidth = kind === 'cleave' ? 3 : 2;
   b.beginPath(); b.arc(ox, oy, rr, a0, a1); b.stroke();
   b.strokeStyle = 'rgba(255,255,255,.7)'; b.lineWidth = 1;
   b.beginPath(); b.arc(ox, oy, rr + 3, a0 + (a1 - a0) * 0.5, a1); b.stroke();
@@ -508,9 +690,10 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
     dk.fillRect(x - r, y - r, r * 2, r * 2);
   };
   const p = sc.player;
-  hole(p.x - cx, p.y - 8 - cy, sc.mode === 'mine' ? 95 : 80, 1);
+  const visible = (x: number, y: number, r: number) => x > -r && y > -r && x < VW + r && y < VH + r;
+  hole(p.x - cx, p.y - 10 - cy, (sc.mode === 'mine' ? 95 : 80) * lightMul(sc), 1);
   for (const s of sc.shots) hole(s.x - cx, s.y - cy, 20, 0.8);
-  if (sc.s.cls === 'spirit') for (let i = 0; i < 2; i++) {
+  if (sc.s.cls === 'spirit') for (let i = 0; i < orbCount(sc); i++) {
     const [ox, oy] = orbPos(sc, i);
     hole(ox - cx, oy - cy, 24, 0.7);
   }
@@ -518,7 +701,22 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
   for (const e of sc.enemies) if (e.boss) hole(e.x - cx, e.y - cy - 16, 70, 0.7);
   for (const hz of sc.hazards) hole(hz.x - cx, hz.y - cy, hz.r + 10, 0.6);
   if (sc.mode === 'town') {
-    for (const bd of sc.overworld.buildings) hole(bd.x * TS + (bd.w * TS) / 2 - cx, bd.y * TS + bd.h * TS - 6 - cy, 34, 0.5);
+    for (const bd of sc.overworld.buildings) {
+      if (bd.name === '空屋') continue;
+      const bx = bd.x * TS + (bd.w * TS) / 2 - cx;
+      const by = bd.y * TS + bd.h * TS - 14 - cy;
+      if (visible(bx, by, 60)) hole(bx, by, 40, 0.55);
+    }
+    for (const [x, y] of sc.overworld.lamps) {
+      const lx = x * TS + 8 - cx;
+      const ly = y * TS - 10 - cy;
+      if (visible(lx, ly, 50)) hole(lx, ly + 8, 46, 0.9);
+    }
+    for (const k of Object.keys(sc.s.forage)) {
+      if (sc.s.forage[k] !== 'fireflower') continue;
+      const [x, y] = k.split(',').map(Number);
+      hole(x * TS + 8 - cx, y * TS + 8 - cy, 18, 0.7);
+    }
     for (const [k, f] of Object.entries(sc.s.field)) {
       if (f.crop === 'berry' && f.days >= CROPS.berry.days) {
         const [x, y] = k.split(',').map(Number);
@@ -531,5 +729,18 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
   if (sc.mode === 'town') {
     b.fillStyle = `rgba(60,40,120,${a * 0.18})`;
     b.fillRect(0, 0, VW, VH);
+    // 路灯下一圈暖黄色的光
+    b.globalCompositeOperation = 'lighter';
+    for (const [x, y] of sc.overworld.lamps) {
+      const lx = x * TS + 8 - cx;
+      const ly = y * TS - cy;
+      if (!visible(lx, ly, 50)) continue;
+      const g = b.createRadialGradient(lx, ly, 0, lx, ly, 40);
+      g.addColorStop(0, `rgba(255,190,90,${0.22 * a})`);
+      g.addColorStop(1, 'rgba(255,190,90,0)');
+      b.fillStyle = g;
+      b.fillRect(lx - 40, ly - 40, 80, 80);
+    }
+    b.globalCompositeOperation = 'source-over';
   }
 }

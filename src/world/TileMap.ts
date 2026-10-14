@@ -17,12 +17,22 @@ export const Tile = {
   PLAZA: 15,
   FOUNTAIN: 16,
   CLIFF: 17,
+  BRIDGE: 18,
+  SAND: 19,
+  BUSH: 20,
+  STONE: 21,
+  LAMP: 22,
+  SIGN: 23,
+  BENCH: 24,
+  /** 森林里的深色草地 */
+  FOREST: 25,
 } as const;
 
 export type TileId = (typeof Tile)[keyof typeof Tile];
 
 const SOLID = new Set<number>([
   Tile.WATER, Tile.TREE, Tile.WALL, Tile.DOOR, Tile.FENCE, Tile.CAVE, Tile.ROCK, Tile.BIN, Tile.FOUNTAIN, Tile.CLIFF,
+  Tile.BUSH, Tile.STONE, Tile.LAMP, Tile.SIGN, Tile.BENCH,
 ]);
 
 export const isSolidTile = (t: number): boolean => SOLID.has(t);
@@ -59,6 +69,38 @@ export class TileMap {
     const i = this.t.indexOf(v);
     return i < 0 ? null : { x: i % this.w, y: Math.floor(i / this.w) };
   }
+}
+
+/** 用 BFS 找一条四方向的最短路径（不含起点），找不到返回 null */
+export function findPath(map: TileMap, sx: number, sy: number, tx: number, ty: number, canWalk: (x: number, y: number) => boolean, limit = 4000): [number, number][] | null {
+  if (sx === tx && sy === ty) return [];
+  const w = map.w;
+  const prev = new Int32Array(map.w * map.h).fill(-1);
+  const start = sy * w + sx;
+  prev[start] = start;
+  const q: number[] = [start];
+  for (let head = 0; head < q.length && head < limit; head++) {
+    const i = q[head];
+    const x = i % w;
+    const y = (i - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!map.inBounds(nx, ny)) continue;
+      const ni = ny * w + nx;
+      if (prev[ni] >= 0) continue;
+      const goal = nx === tx && ny === ty;
+      if (!goal && !canWalk(nx, ny)) continue;
+      prev[ni] = i;
+      if (goal) {
+        const path: [number, number][] = [];
+        for (let c = ni; c !== start; c = prev[c]) path.push([c % w, Math.floor(c / w)]);
+        return path.reverse();
+      }
+      q.push(ni);
+    }
+  }
+  return null;
 }
 
 /** 从起点出发的 BFS 步数表，-1 表示不可达 */

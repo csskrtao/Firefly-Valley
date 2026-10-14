@@ -45,6 +45,10 @@ export abstract class Enemy {
   /** 最近一次命中它的攻击编号 */
   hitBy = -1;
   orbCd = 0;
+  /** 中毒剩余时间、每跳伤害和下一跳的倒计时 */
+  poison = 0;
+  poisonDmg = 0;
+  poisonTick = 0;
   /** 离地高度，跳起时不可被攻击 */
   z = 0;
   knock = 1;

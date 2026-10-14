@@ -16,6 +16,8 @@ export interface FloorLayout {
   ores: { tx: number; ty: number; item: ItemId }[];
   monsters: { id: MonsterId; tx: number; ty: number }[];
   crystals: [number, number][];
+  /** 宝箱，普通楼层才有 */
+  chests: [number, number][];
   boss: { id: BossId; tx: number; ty: number } | null;
 }
 
@@ -98,6 +100,16 @@ export function generateFloor(floor: number, rand: () => number = Math.random): 
     if (c) crystals.push([c.x, c.y]);
   }
 
+  // 宝箱放在离入口远一点的地方，深层偶尔有两个
+  const chests: [number, number][] = [];
+  if (!boss) {
+    const n = (rand() < 0.6 ? 1 : 0) + (floor >= 6 && rand() < 0.3 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const c = take(9);
+      if (c) chests.push([c.x, c.y]);
+    }
+  }
+
   const monsters: FloorLayout['monsters'] = [];
   if (!boss) {
     const n = (zone.from === 1 ? 5 : 6) + (floor - zone.from);
@@ -108,7 +120,7 @@ export function generateFloor(floor: number, rand: () => number = Math.random): 
   }
 
   return {
-    map: m, floor, spawn, ladder, stairs, bossExit, ores, monsters, crystals,
+    map: m, floor, spawn, ladder, stairs, bossExit, ores, monsters, crystals, chests,
     boss: boss ? { id: zone.boss.id, tx: Math.floor(MINE_W / 2), ty: Math.floor(MINE_H / 2) } : null,
   };
 }

@@ -5,7 +5,7 @@
 export type Sfx =
   | 'swing' | 'hit' | 'crit' | 'hurt' | 'coin' | 'pickup' | 'dig' | 'water' | 'plant'
   | 'blip' | 'select' | 'forge' | 'fail' | 'levelup' | 'slam' | 'magic' | 'dash'
-  | 'door' | 'kill' | 'heal' | 'rumble';
+  | 'door' | 'kill' | 'heal' | 'rumble' | 'step' | 'chest' | 'cook' | 'boom' | 'blink' | 'equip';
 
 export type Track = 'title' | 'farm' | 'night' | 'mine' | 'boss';
 
@@ -152,6 +152,7 @@ class AudioEngine {
       case 'dig': this.noise(0.12, 0.3, 600); this.tone(140, 0.08, 'square', 0.06, 90); break;
       case 'water': this.noise(0.2, 0.15, 3000); this.tone(700, 0.15, 'sine', 0.04, 400); break;
       case 'plant': this.tone(330, 0.06, 'triangle', 0.08); this.tone(440, 0.08, 'triangle', 0.08, undefined, 0.05); break;
+      case 'step': this.noise(0.035, 0.045, 700); break;
       case 'blip': this.tone(520, 0.03, 'square', 0.04); break;
       case 'select': this.tone(660, 0.05, 'square', 0.06); this.tone(880, 0.06, 'square', 0.05, undefined, 0.04); break;
       case 'forge':
@@ -167,6 +168,11 @@ class AudioEngine {
       case 'kill': this.tone(500, 0.06, 'square', 0.08, 900); this.noise(0.1, 0.15, 2000); break;
       case 'heal': [660, 880, 1100].forEach((f, i) => this.tone(f, 0.12, 'sine', 0.07, undefined, i * 0.06)); break;
       case 'rumble': this.noise(0.6, 0.3, 200); this.tone(60, 0.6, 'sine', 0.2, 40); break;
+      case 'chest': this.tone(392, 0.08, 'square', 0.06); [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.12, 'triangle', 0.07, undefined, 0.1 + i * 0.06)); break;
+      case 'cook': this.noise(0.4, 0.12, 2500); this.tone(523, 0.1, 'triangle', 0.06, undefined, 0.35); this.tone(784, 0.14, 'triangle', 0.06, undefined, 0.43); break;
+      case 'boom': this.noise(0.4, 0.45, 900); this.tone(120, 0.35, 'sawtooth', 0.12, 40); break;
+      case 'blink': this.tone(1600, 0.12, 'sine', 0.07, 400); this.noise(0.1, 0.12, 6000); break;
+      case 'equip': this.tone(440, 0.05, 'square', 0.06); this.noise(0.05, 0.12, 3000, 0.04); this.tone(660, 0.08, 'square', 0.05, undefined, 0.06); break;
     }
   }
 
