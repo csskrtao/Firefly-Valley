@@ -213,6 +213,7 @@ export function interact(sc: PlayScene): void {
     return;
   }
   if (sc.mode === 'wild') {
+    if (!sc.s.forage[forageKey(sc.region, tx, ty)] && exploreInteract(sc, tx, ty)) return;
     interactWild(sc, tx, ty);
     return;
   }

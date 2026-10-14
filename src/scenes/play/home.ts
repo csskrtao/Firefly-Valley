@@ -84,6 +84,7 @@ export function applyHome(sc: PlayScene): void {
   // 挖宝点也不能冒在设施底下
   sc.explore.sites.digCells = p.dig.filter(([x, y]) => !m.solid(x, y));
   s.explore.digs = s.explore.digs.filter((k) => {
+    if (k.includes(':')) return true;
     const [x, y] = k.split(',').map(Number);
     return !m.solid(x, y);
   });

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { NPCS, NPC_IDS } from '../src/data/npcs';
 import type { Cell } from '../src/data/treasure';
-import { BOOK_TREASURES, BOULDER_RING, BRAZIERS, EVENT_SPOTS, HIDDEN_CHESTS, MAP_SPOTS } from '../src/data/treasure';
+import { BOOK_TREASURES, BOULDER_RING, BRAZIERS, EVENT_SPOTS, HIDDEN_CHESTS, HIDDEN_IDS, MAP_SPOTS, WILD_HIDDEN } from '../src/data/treasure';
+import { QUALITIES } from '../src/data/gear';
 import { migrate, newSave } from '../src/state/save';
 import * as ex from '../src/systems/explore';
-import { placeExploreSites } from '../src/world/exploreSites';
+import type { ZoneSites } from '../src/world/exploreSites';
+import { placeExploreSites, townZone, wildZone } from '../src/world/exploreSites';
+import { WILD_IDS } from '../src/world/regions/defs';
+import { wildLayout } from '../src/world/regions/layout';
 import { buildOverworld } from '../src/world/overworld';
 import { Tile, distanceField, findPath, isSolidTile } from '../src/world/TileMap';
 
@@ -28,6 +32,9 @@ const dist = distanceField(m, hx, hy, (t) => !isSolidTile(t));
 const reachable = (x: number, y: number) => dist[y * m.w + x] >= 0;
 const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const besideReachable = ([x, y]: Cell) => N4.some(([dx, dy]) => reachable(x + dx, y + dy));
+const town = townZone(sites.digCells);
+const wilds = WILD_IDS.map((id) => wildZone(wildLayout(id as never)));
+const allZones: ZoneSites[] = [town, ...wilds];
 
 describe('explore sites on the town map', () => {
   it('keeps the town walkable after planting the stone ring', () => {
@@ -109,12 +116,12 @@ describe('digging and treasure maps', () => {
   it('spawns dig spots each day away from forage and clears yesterday’s', () => {
     const s = newSave(0, 'warrior');
     s.forage[`${sites.digCells[0][0]},${sites.digCells[0][1]}`] = 'leek';
-    ex.newExploreDay(s, sites.digCells, seeded(1));
+    ex.newExploreDay(s, [town], seeded(1));
     expect(s.explore.digs.length).toBeGreaterThanOrEqual(3);
     expect(s.explore.digs).not.toContain(`${sites.digCells[0][0]},${sites.digCells[0][1]}`);
     s.day++;
     const before = [...s.explore.digs];
-    ex.newExploreDay(s, sites.digCells, seeded(2));
+    ex.newExploreDay(s, [town], seeded(2));
     expect(s.explore.digs).not.toEqual(before);
     expect(s.explore.day).toBe(s.day);
   });
@@ -133,15 +140,17 @@ describe('digging and treasure maps', () => {
   it('points a treasure map somewhere and pays out a rare treasure', () => {
     const s = newSave(0, 'rogue');
     s.inv.treasureMap = 2;
-    const spot = ex.readMap(s, seeded(4));
-    expect(spot).toBeGreaterThanOrEqual(0);
-    expect(ex.mapTarget(s)).toEqual(MAP_SPOTS[spot].at);
+    const spot = ex.readMap(s, [town], seeded(4))!;
+    expect(MAP_SPOTS.map((p) => p.at)).toContainEqual(spot.at);
+    expect(ex.mapTarget(s)).toEqual(spot);
     const loot = ex.digMap(s, seeded(5))!;
     expect(loot.gold).toBeGreaterThanOrEqual(150);
     expect(Object.keys(loot.items).some((id) => BOOK_TREASURES.includes(id as never))).toBe(true);
-    // 还剩一张图：接着指向下一个地点
+    expect(loot.got.length).toBe(1);
+    // 还剩一张图：看一眼就指向下一个地点
     expect(s.inv.treasureMap).toBe(1);
-    expect(ex.mapTarget(s)).not.toBeNull();
+    expect(ex.mapTarget(s)).toBeNull();
+    expect(ex.readMap(s, [town], seeded(7))).not.toBeNull();
     ex.digMap(s, seeded(6));
     expect(s.inv.treasureMap).toBeUndefined();
     expect(ex.mapTarget(s)).toBeNull();
@@ -159,12 +168,13 @@ describe('hidden chests and events', () => {
 
   it('needs all three braziers lit', () => {
     const s = newSave(0, 'warrior');
-    expect(ex.lightBrazier(s, 0, 3)).toBe(false);
-    expect(ex.lightBrazier(s, 0, 3)).toBe(false);
-    expect(ex.lightBrazier(s, 1, 3)).toBe(false);
-    expect(ex.lightBrazier(s, 2, 3)).toBe(true);
+    expect(ex.lightBrazier(s, 'brazier', 0, 3)).toBe(false);
+    expect(ex.lightBrazier(s, 'brazier', 0, 3)).toBe(false);
+    expect(ex.lightBrazier(s, 'mistwood', 1, 3)).toBe(false);
+    expect(ex.lightBrazier(s, 'brazier', 1, 3)).toBe(false);
+    expect(ex.lightBrazier(s, 'brazier', 2, 3)).toBe(true);
     s.day++;
-    ex.newExploreDay(s, sites.digCells, seeded(7));
+    ex.newExploreDay(s, [town], seeded(7));
     expect(s.explore.lit).toEqual([]);
   });
 
@@ -174,7 +184,7 @@ describe('hidden chests and events', () => {
     s.explore.event = { kind: 'merchant', spot: 0, stage: 0, sold: [] };
     const map = ex.merchantStock(s).find((i) => i.id === 'treasureMap')!;
     expect(ex.buyFromMerchant(s, map).ok).toBe(true);
-    expect(ex.mapTarget(s)).not.toBeNull();
+    expect(ex.readMap(s, [town])).not.toBeNull();
     const again = ex.merchantStock(s).find((i) => i.id === 'treasureMap')!;
     expect(again.soldOut).toBe(true);
     expect(ex.buyFromMerchant(s, again).ok).toBe(false);
@@ -216,13 +226,15 @@ describe('collection book', () => {
     s.kills.slime = 3;
     expect(ex.bookEntries(s, 'monster').find((e) => e.name === '绿史莱姆')?.note).toBe('3 只');
     for (const id of BOOK_TREASURES) ex.record(s, id);
+    expect(ex.canClaim(s, 'treasure', 'half')).toBe(false);
+    ex.openHidden(s, 'boulder');
     expect(ex.canClaim(s, 'treasure', 'half')).toBe(true);
     expect(ex.canClaim(s, 'treasure', 'full')).toBe(false);
     const gold = s.gold;
     expect(ex.claimBook(s, 'treasure', 'half')).not.toBeNull();
     expect(s.gold).toBe(gold + 300);
     expect(ex.claimBook(s, 'treasure', 'half')).toBeNull();
-    for (const id of ['boulder', 'brazier', 'detour'] as const) ex.openHidden(s, id);
+    for (const id of HIDDEN_IDS) ex.openHidden(s, id);
     expect(ex.claimBook(s, 'treasure', 'full')?.items.compass).toBe(1);
   });
 
@@ -234,5 +246,118 @@ describe('collection book', () => {
     const partial = migrate({ ...old, explore: { found: ['amber'] } })!;
     expect(partial.explore.found).toEqual(['amber']);
     expect(partial.explore.claimed).toEqual([]);
+  });
+});
+
+describe('exploring the wild regions', () => {
+  it('gives every region a hidden chest, map spots, events and dig spots you can reach all at once', () => {
+    for (const z of wilds) {
+      const L = wildLayout(z.region as never);
+      const lm = L.map;
+      const things: Cell[] = [...z.hidden.flatMap((hs) => [hs.at, ...hs.braziers]), ...z.mapSpots.map((p) => p.at), ...Object.values(z.events).flat().map((e) => e.at)];
+      const camp = z.events.camp[0];
+      if (camp) things.push([camp.at[0] + 1, camp.at[1]]);
+      expect(z.hidden.length, z.region).toBe(1);
+      expect(z.hidden[0].braziers.length).toBe(WILD_HIDDEN[z.region as keyof typeof WILD_HIDDEN].puzzle === 'brazier' ? 3 : 0);
+      expect(z.mapSpots.length, z.region).toBeGreaterThanOrEqual(1);
+      expect(z.events.merchant.length + z.events.traveler.length + z.events.camp.length, z.region).toBeGreaterThanOrEqual(2);
+      expect(z.digCells.length, z.region).toBeGreaterThanOrEqual(4);
+      // 所有东西都放下以后，从路标还能走到每一样东西旁边
+      const key = (c: Cell) => `${c[0]},${c[1]}`;
+      expect(new Set(things.map(key)).size).toBe(things.length);
+      const saved = things.map(([x, y]) => lm.get(x, y));
+      things.forEach(([x, y]) => lm.set(x, y, Tile.STONE));
+      const d = distanceField(lm, L.arrive[0], L.arrive[1], (t) => !isSolidTile(t) && t !== Tile.WATER);
+      things.forEach(([x, y], i) => lm.set(x, y, saved[i]));
+      const ok = (x: number, y: number) => d[y * lm.w + x] >= 0;
+      for (const [x, y] of things) expect(N4.some(([dx, dy]) => ok(x + dx, y + dy)), `${z.region} ${x},${y}`).toBe(true);
+      for (const [x, y] of z.digCells) expect(ok(x, y) || N4.some(([dx, dy]) => ok(x + dx, y + dy))).toBe(true);
+      for (const e of z.events.merchant.concat(z.events.traveler, z.events.camp)) expect(e.where).toContain('路标');
+    }
+  });
+
+  it('spreads dig spots over every reachable region with region-prefixed keys', () => {
+    const s = newSave(0, 'warrior');
+    ex.newExploreDay(s, allZones, seeded(11));
+    expect(s.explore.digs.some((k) => !k.includes(':'))).toBe(true);
+    for (const z of wilds) expect(s.explore.digs.some((k) => k.startsWith(`${z.region}:`)), z.region).toBe(true);
+  });
+
+  it('pays more gold and a better tier of gear deeper in the wild', () => {
+    const s = newSave(0, 'warrior');
+    const tiers: number[] = [];
+    let townGold = 0;
+    let ruinsGold = 0;
+    for (let i = 0; i < 40; i++) {
+      s.explore.digs = ['10,40', `ruins:${i},5`];
+      townGold += ex.dig(s, '10,40', seeded(100 + i))!.gold;
+      ruinsGold += ex.dig(s, `ruins:${i},5`, seeded(100 + i))!.gold;
+    }
+    expect(ruinsGold).toBeGreaterThan(townGold);
+    s.inv.treasureMap = 1;
+    s.explore.map = { region: 'ruins', at: [5, 5], hint: '' };
+    const loot = ex.digMap(s, seeded(12))!;
+    tiers.push(loot.got[0].tier);
+    expect(loot.got[0].tier).toBe(ex.regionGearTier('ruins'));
+    expect(ex.regionGearTier('ruins')).toBeGreaterThan(ex.regionGearTier('town'));
+  });
+
+  it('puts gear of at least rare quality in wild hidden chests and camp chests', () => {
+    for (let i = 0; i < 10; i++) {
+      const s = newSave(0, 'rogue');
+      const loot = ex.openHidden(s, 'starmarsh', seeded(200 + i))!;
+      expect(loot.items.fossil).toBe(1);
+      expect(loot.got.length).toBe(1);
+      expect(loot.got[0].q).toBeGreaterThanOrEqual(2);
+      expect(QUALITIES[loot.got[0].q]).toBeDefined();
+      s.explore.event = { kind: 'camp', region: 'northcrag', spot: 0, stage: 1, sold: [] };
+      expect(ex.campTier(s)).toBe(8);
+      const camp = ex.openCampChest(s, { gold: 10, items: {}, blueprint: null, gear: null }, seeded(300 + i))!;
+      expect(camp.got[0].q).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('sells one piece of gear from the merchant', () => {
+    const s = newSave(0, 'mage');
+    s.gold = 100000;
+    s.explore.event = { kind: 'merchant', region: 'mistwood', spot: 0, stage: 0, sold: [] };
+    ex.newExploreDay(s, allZones, () => 0.01);
+    expect(s.explore.event?.kind).toBe('merchant');
+    const gear = ex.merchantStock(s).find((i) => i.gear)!;
+    expect(gear.price).toBeGreaterThan(0);
+    const n = s.gear.length;
+    const r = ex.buyFromMerchant(s, gear);
+    expect(r.ok).toBe(true);
+    expect(r.got.length).toBe(1);
+    expect(s.gear.length).toBe(n + 1);
+    expect(ex.merchantStock(s).find((i) => i.gear)!.soldOut).toBe(true);
+  });
+
+  it('points treasure maps at visited wild regions too', () => {
+    const s = newSave(0, 'warrior');
+    const regions = new Set<string>();
+    for (let i = 0; i < 60; i++) {
+      s.inv.treasureMap = 1;
+      s.explore.map = null;
+      regions.add(ex.readMap(s, allZones, seeded(400 + i))!.region);
+    }
+    expect(regions.size).toBeGreaterThan(2);
+    expect(ex.mapCandidates(allZones).every((t) => t.hint.length > 0)).toBe(true);
+  });
+
+  it('upgrades the first version of a save', () => {
+    const s = newSave(0, 'warrior');
+    s.inv.treasureMap = 1;
+    const e = s.explore as unknown as Record<string, unknown>;
+    e.mapSpot = 1;
+    delete e.map;
+    e.lit = [0, 2];
+    e.event = { kind: 'merchant', spot: 0, stage: 0, sold: [] };
+    ex.explore(s);
+    expect(ex.mapTarget(s)).toEqual({ region: 'town', at: MAP_SPOTS[1].at, hint: MAP_SPOTS[1].hint });
+    expect(s.explore.mapSpot).toBe(-1);
+    expect(ex.isLit(s, 'brazier', 0)).toBe(true);
+    expect(ex.litCount(s, 'brazier')).toBe(2);
+    expect(s.explore.event?.region).toBe('town');
   });
 });

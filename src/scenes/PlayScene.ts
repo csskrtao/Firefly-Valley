@@ -205,18 +205,16 @@ export class PlayScene implements Scene, EnemyHost {
       const canWalk = (tx: number, ty: number) => !this.map.solid(tx, ty) && !(tx === px && ty === py);
       for (const n of this.npcs) n.update(dt, s.time, this.map, canWalk, this.player);
       pickupForage(this);
-      updateOutdoor(this, dt);
-    } else {
-      if (this.mode === 'wild') {
-        pickupForage(this);
-        updateRegion(this);
-      }
-      for (const e of this.enemies.slice()) e.update(this, dt);
-      combat.updateCombat(this, dt);
-      combat.updateShots(this, dt);
-      combat.updateOrbs(this, dt);
-      combat.updateHazards(this, dt);
+    } else if (this.mode === 'wild') {
+      pickupForage(this);
+      updateRegion(this);
     }
+    for (const e of this.enemies.slice()) e.update(this, dt);
+    combat.updateCombat(this, dt);
+    combat.updateShots(this, dt);
+    combat.updateOrbs(this, dt);
+    combat.updateHazards(this, dt);
+    if (this.mode !== 'mine') updateOutdoor(this, dt);
   }
 
   private updatePlayer(dt: number): void {
@@ -412,7 +410,7 @@ export class PlayScene implements Scene, EnemyHost {
     if (this.map.solid(tx, ty)) return true;
     if (this.barriers.has(`${tx},${ty}`)) return true;
     if (this.mode === 'mine') return this.ores.some((o) => o.tx === tx && o.ty === ty) || this.chests.some((c) => c.tx === tx && c.ty === ty);
-    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty) || (this.mode === 'town' && exploreBlocked(this, tx, ty));
+    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty) || exploreBlocked(this, tx, ty);
   }
 
   boxFree(x: number, y: number, hw: number, hh: number, fly = false): boolean {
@@ -529,7 +527,7 @@ export class PlayScene implements Scene, EnemyHost {
     }
     this.player.place(spawn[0], spawn[1]);
     this.player.face(face[0], face[1]);
-    if (id === 'town') enterOutdoor(this);
+    enterOutdoor(this);
     if (markVisited(this.s, id)) this.pendingIntro = { who: '世界地图', text: `发现了新的区域【${REGIONS[id].name}】。按 M 打开世界地图，以后可以快速旅行过来。` };
     this.setMusic();
   }

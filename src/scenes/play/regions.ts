@@ -1,8 +1,6 @@
 import { TS } from '../../core/constants';
-import { weighted } from '../../core/math';
 import type { ItemId } from '../../data/items';
 import { ITEMS } from '../../data/items';
-import { Monster } from '../../entities/Monster';
 import { RegionBoss } from '../../entities/RegionBoss';
 import type { SaveData } from '../../state/save';
 import { spawnForage } from '../../systems/forage';
@@ -17,28 +15,14 @@ import { collectForage } from './actions';
 import { giveItems, grantXp } from './combat';
 import { openWorldMap } from './worldmap';
 
-/** 进入野外区域时刷几只怪 */
-const MONSTERS_PER_VISIT = 7;
-
 /** 新的一天：小镇和所有野外区域都长出新的采集物 */
 export function spawnAllForage(s: SaveData, town: RegionLayout): void {
   spawnForage(s, town.forage);
   for (const id of WILD_IDS) spawnForage(s, wildLayout(id as Exclude<RegionId, 'town'>).forage, Math.random, foragePrefix(id));
 }
 
-/**
- * 进入野外区域时放怪物和 Boss。
- * 户外探险线（阶段 4）会把这里换成按白天黑夜游荡刷新的怪物。
- */
+/** 进入野外区域时放 Boss。游荡的怪物由户外探险按白天黑夜刷新（scenes/play/explore.ts） */
 export function populateRegion(sc: PlayScene, L: RegionLayout): void {
-  const def = REGIONS[L.id];
-  const spots = L.monsterSpots.slice();
-  if (Object.keys(def.monsters).length && spots.length) {
-    for (let i = 0; i < MONSTERS_PER_VISIT && spots.length; i++) {
-      const [tx, ty] = spots.splice(Math.floor(Math.random() * spots.length), 1)[0];
-      sc.enemies.push(new Monster(weighted(def.monsters), tx * TS + 8, ty * TS + 10, def.tier));
-    }
-  }
   if (L.boss && regionBossAround(sc.s, L.id)) sc.enemies.push(new RegionBoss(L.id, L.boss[0] * TS + 8, L.boss[1] * TS + 10));
 }
 
