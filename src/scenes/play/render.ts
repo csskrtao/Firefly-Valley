@@ -1,5 +1,5 @@
 import { TS, VH, VW } from '../../core/constants';
-import { TAU, hash, rnd } from '../../core/math';
+import { TAU, hash, rnd, wrap } from '../../core/math';
 import type { CropId } from '../../data/crops';
 import { CROPS } from '../../data/crops';
 import { zoneFor } from '../../data/floors';
@@ -18,6 +18,7 @@ import { seasonOf } from '../../state/save';
 import { PILLAR_H, WAYSTONE_H, barrierTile, gravelTiles, marshTiles, pillarImgs, reedTiles, ruinTiles, waystoneImgs } from '../../gfx/regionTiles';
 import { foragePrefix } from '../../systems/regions';
 import { nightAlpha } from '../../systems/time';
+import { equipped, weaponOf } from '../../systems/gear';
 import { weaponTypeOf } from '../../systems/stats';
 import { isRanged } from '../../data/weapons';
 import type { Building } from '../../world/overworld';
@@ -27,9 +28,8 @@ import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
 import { drawExplore, exploreHighlight, exploreLights } from './explore';
 import { drawAtmosphere } from './regionFx';
 
+/** 光照层，大小跟着视野变 */
 const dark = document.createElement('canvas');
-dark.width = VW;
-dark.height = VH;
 const dk = dark.getContext('2d')!;
 
 export function renderPlay(sc: PlayScene): void {
@@ -527,7 +527,7 @@ function drawPlayer(sc: PlayScene, cx: number, cy: number): void {
   }
   b.fillStyle = 'rgba(0,0,0,.25)';
   b.fillRect(Math.round(p.x - cx - 5), Math.round(p.y - cy + 1), 10, 3);
-  const { img, flip } = frameFor(playerChar(s.cls, s.armor.tier), p.fx, p.fy, walkFrame(p.moving, p.walk));
+  const { img, flip } = frameFor(playerChar(s.cls, equipped(s, 'body')?.tier ?? 0), p.fx, p.fy, walkFrame(p.moving, p.walk));
   const sx = Math.round(p.x - 8 - cx);
   const sy = Math.round(p.y + 2 - CHAR_FOOT - cy);
   // 背对镜头时武器在身后
@@ -538,7 +538,7 @@ function drawPlayer(sc: PlayScene, cx: number, cy: number): void {
   b.globalAlpha = 1;
   if (!behind && p.atkT <= 0) heldWeapon(sc, cx, cy);
   drawSwing(sc, cx, cy);
-  if (s.armor.plus >= 5 && Math.sin(sc.clock * 5) > 0.85) {
+  if ((equipped(s, 'body')?.plus ?? 0) >= 5 && Math.sin(sc.clock * 5) > 0.85) {
     b.fillStyle = '#fff';
     b.fillRect(Math.round(p.x - cx - 3), Math.round(p.y - cy - 12), 1, 1);
   }
@@ -548,7 +548,7 @@ function drawPlayer(sc: PlayScene, cx: number, cy: number): void {
 function heldWeapon(sc: PlayScene, cx: number, cy: number): void {
   const { b } = sc.game.renderer;
   const p = sc.player;
-  const w = WEAPON_TIERS[sc.s.weapon.tier];
+  const w = WEAPON_TIERS[weaponOf(sc.s).tier];
   const hx = Math.round(p.x - cx + (p.fx > 0 ? 1 : p.fx < 0 ? -2 : p.fy < 0 ? -5 : 4));
   const hy = Math.round(p.y - cy - 4);
   const f = (c: string, x: number, y: number, ww: number, hh: number) => {
@@ -631,7 +631,7 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
   const p = sc.player;
   const ox = p.x - cx;
   const oy = p.y - 7 - cy;
-  const w = WEAPON_TIERS[sc.s.weapon.tier];
+  const w = WEAPON_TIERS[weaponOf(sc.s).tier];
   if (p.spinT > 0) {
     const a0 = sc.clock * 22;
     b.strokeStyle = w.color; b.lineWidth = 3;
@@ -646,7 +646,7 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
   const kind = p.swingKind;
   const total = kind === 'cleave' ? 0.26 : 0.18;
   const k = 1 - p.atkT / total;
-  const glow = sc.s.weapon.plus >= 5;
+  const glow = weaponOf(sc.s).plus >= 5;
   if (kind === 'thrust') {
     // 突刺：一道向前伸出的枪影
     const len = rr * Math.min(1, k * 1.6);
@@ -677,7 +677,8 @@ function drawSwing(sc: PlayScene, cx: number, cy: number): void {
   b.beginPath(); b.arc(ox, oy, rr + 3, a0 + (a1 - a0) * 0.5, a1); b.stroke();
 }
 
-const drops = Array.from({ length: 90 }, () => ({ x: Math.random() * VW, y: Math.random() * VH, s: 0.6 + Math.random() * 0.6 }));
+// 位置取得比视野大，画的时候按当前视野取模，竖屏视野变高也能铺满
+const drops = Array.from({ length: 120 }, () => ({ x: Math.random() * 1000, y: Math.random() * 1000, s: 0.6 + Math.random() * 0.6 }));
 
 function drawWeather(sc: PlayScene): void {
   const { b } = sc.game.renderer;
@@ -691,8 +692,8 @@ function drawWeather(sc: PlayScene): void {
     b.lineWidth = 1;
     b.beginPath();
     for (const d of drops) {
-      const y = (d.y + t * 260 * d.s) % VH;
-      const x = (d.x - t * 40 * d.s + VW * 4) % VW;
+      const y = wrap(d.y + t * 260 * d.s, VH);
+      const x = wrap(d.x - t * 40 * d.s, VW);
       b.moveTo(x, y);
       b.lineTo(x - 2, y + 6);
     }
@@ -700,8 +701,8 @@ function drawWeather(sc: PlayScene): void {
   } else {
     b.fillStyle = 'rgba(255,255,255,.85)';
     for (const d of drops) {
-      const y = (d.y + t * 30 * d.s) % VH;
-      const x = (d.x + Math.sin(t + d.y) * 8 + VW) % VW;
+      const y = wrap(d.y + t * 30 * d.s, VH);
+      const x = wrap(d.x + Math.sin(t + d.y) * 8, VW);
       b.fillRect(Math.round(x), Math.round(y), 2, 2);
     }
   }
@@ -714,6 +715,10 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
   // 遗迹里白天也有点暗
   else a = sc.region === 'ruins' ? Math.max(0.18, nightAlpha(sc.s.time)) : nightAlpha(sc.s.time);
   if (a <= 0) return;
+  if (dark.width !== VW || dark.height !== VH) {
+    dark.width = VW;
+    dark.height = VH;
+  }
   dk.globalCompositeOperation = 'source-over';
   dk.clearRect(0, 0, VW, VH);
   dk.fillStyle = `rgba(10,6,24,${a})`;

@@ -17,6 +17,7 @@ import { accSum, maxHp } from '../../systems/stats';
 import { forageKey } from '../../systems/regions';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
+import { announceGear } from './gearui';
 import { exploreInteract } from './explore';
 import { homeMenu, mineEntrance, talkTo } from './town';
 import { interactWild } from './regions';
@@ -277,7 +278,7 @@ function openChest(sc: PlayScene, chest: { tx: number; ty: number; open: boolean
   chest.open = true;
   const s = sc.s;
   const loot = rollChest(s, sc.floor);
-  applyLoot(s, loot);
+  const gears = applyLoot(s, loot);
   sc.sfx('chest');
   const x = chest.tx * TS + 8;
   const y = chest.ty * TS;
@@ -287,12 +288,14 @@ function openChest(sc: PlayScene, chest: { tx: number; ty: number; open: boolean
   for (const [id, n] of Object.entries(loot.items) as [ItemId, number][]) {
     sc.fx.text(x, y - 4 - dy, `+${n} ${ITEMS[id].name}`, ITEMS[id].color);
     dy += 8;
-    if (ITEMS[id].kind === 'accessory') sc.ui.dialog.say('宝箱', `找到了饰品【${ITEMS[id].name}】！${ITEMS[id].desc} 在背包的装备页可以戴上。`);
+    if (ITEMS[id].kind === 'accessory') sc.ui.dialog.say('宝箱', `找到了饰品【${ITEMS[id].name}】！${ITEMS[id].desc} 在背包里点它就能戴上。`);
   }
   if (loot.blueprint) {
     const wt = WEAPON_TYPES[loot.blueprint];
-    sc.ui.dialog.say('宝箱', `找到了一张武器图纸：【${wt.name}】。${wt.desc} 在背包的装备页可以换上。`);
+    sc.ui.dialog.say('宝箱', `找到了一张武器图纸：【${wt.name}】，还有一把照着图纸打的${wt.name}。${wt.desc} 在背包里点它就能换上。`);
   }
+  // 图纸送的那把武器上面已经说过了
+  announceGear(sc, gears.slice(loot.blueprint ? 1 : 0), x, y - 4 - dy);
 }
 
 /** 走到采集物上自动捡起来 */

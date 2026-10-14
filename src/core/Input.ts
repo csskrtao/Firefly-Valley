@@ -49,6 +49,8 @@ export class Input {
     }
     if (!this.enabled) return;
     const target = e.target as HTMLElement | null;
+    // 在文本框里打字（比如粘贴存档码）时不抢按键，只留 Esc 用来返回
+    if ((target?.tagName === 'TEXTAREA' || (target?.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text')) && action !== 'pause') return;
     // 设置面板里获得焦点的滑块需要左右键，不抢
     if (target?.tagName === 'INPUT' && (action === 'left' || action === 'right')) return;
     e.preventDefault();
