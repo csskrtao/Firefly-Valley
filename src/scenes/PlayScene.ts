@@ -143,6 +143,10 @@ export class PlayScene implements Scene, EnemyHost {
     const wasModal = this.ui.modal;
     this.ui.update(dt, input);
     this.updateHud();
+    if (this.s.mailed) {
+      this.s.mailed = 0;
+      this.toast('背包满了，多出来的东西送回了家里的仓库箱');
+    }
     if (wasModal || this.ui.modal || this.ui.fade.busy) return;
     if (this.pendingIntro) {
       const { who, text, face } = this.pendingIntro;

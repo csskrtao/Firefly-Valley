@@ -1,4 +1,5 @@
 import './styles/main.css';
+import './styles/gear.css';
 import { audio } from './core/Audio';
 import { Game } from './core/Game';
 import { Input } from './core/Input';

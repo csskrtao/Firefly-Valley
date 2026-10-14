@@ -1,27 +1,130 @@
 import { CLASSES } from '../../data/classes';
-import { ARMOR_TIERS, MAX_PLUS, WEAPON_TIERS } from '../../data/equipment';
-import type { AccStat, ItemDef, ItemId, ItemKind } from '../../data/items';
-import { BUFF_TEXT, ITEMS, ITEM_IDS } from '../../data/items';
+import type { EquipSlot, Gear } from '../../data/gear';
+import { EQUIP_SLOTS, EQUIP_SLOT_NAME, gearName } from '../../data/gear';
+import type { ItemDef, ItemId, ItemKind } from '../../data/items';
+import { BUFF_TEXT, ITEMS } from '../../data/items';
 import { SKILLS } from '../../data/skills';
-import { WEAPON_TYPES, typesOf, weaponType } from '../../data/weapons';
+import { typesOf, weaponType } from '../../data/weapons';
 import { MAX_LEVEL, xpToNext } from '../../systems/level';
 import { MONSTERS } from '../../data/monsters';
 import type { MonsterId } from '../../data/monsters';
 import { NPCS, NPC_IDS } from '../../data/npcs';
 import { QUESTS } from '../../data/quests';
 import { iconUrl, itemIcon } from '../../gfx/tiles';
-import { addItem, count, removeItem } from '../../state/save';
+import { bagGear, bagUsed, count, removeItem } from '../../state/save';
+import {
+  bagCells, canWear, equip, equipped, equippedSlot, expandBag, expandCost, gearById, gearLabel, inStash, salvage, salvageUpTo, salvageValue, sortBag, unequip,
+} from '../../systems/gear';
 import { hearts, MAX_HEARTS } from '../../systems/friendship';
 import * as quests from '../../systems/quests';
-import { armorName, attack, critChance, defense, maxHp, weaponName } from '../../systems/stats';
+import { attack, critChance, defense, maxHp, weaponTypeOf } from '../../systems/stats';
 import { renderHelp, renderSettings } from '../../ui/common';
 import { h } from '../../ui/dom';
 import type { PanelTab } from '../../ui/UI';
-import { itemCell } from '../../ui/UI';
 import type { PlayScene } from '../PlayScene';
 import { consume } from './actions';
+import { actBtn, actionRow, compareInfo, emptyCell, gearCell, gearInfo, itemSlotCell, targetSlot } from './gearui';
 
-const KIND_ORDER: ItemKind[] = ['consumable', 'dish', 'crop', 'forage', 'seed', 'accessory', 'ore', 'material', 'key'];
+/** 背包和装备页里当前点中的东西，刷新面板时保留 */
+type Pick = { gear: number } | { item: ItemId } | { slot: EquipSlot } | null;
+let picked: Pick = null;
+/** 等待第二次确认的危险操作（分解强化过的装备、丢东西） */
+let confirming = '';
+
+const pick = (sc: PlayScene, p: Pick) => {
+  picked = p;
+  confirming = '';
+  sc.sfx('blip');
+  sc.ui.panel.refresh();
+};
+
+/** 需要再点一次才执行的按钮 */
+function confirmBtn(sc: PlayScene, key: string, label: string, fn: () => void, need: boolean): HTMLButtonElement {
+  const waiting = confirming === key;
+  return actBtn(waiting ? `确定${label}？` : label, () => {
+    if (need && !waiting) {
+      confirming = key;
+      sc.ui.panel.refresh();
+      return;
+    }
+    confirming = '';
+    fn();
+  }, { danger: waiting });
+}
+
+function wear(sc: PlayScene, g: Gear): void {
+  const s = sc.s;
+  if (!equip(s, g.id)) return;
+  s.hp = Math.min(s.hp, maxHp(s));
+  if (g.slot === 'weapon') sc.player.atkCd = 0.2;
+  sc.sfx('equip');
+  sc.toast(`穿上了【${gearLabel(g)}】`);
+  sc.ui.panel.refresh();
+}
+
+function takeOff(sc: PlayScene, slot: EquipSlot): void {
+  const s = sc.s;
+  const r = unequip(s, slot);
+  if (r === 'full') sc.toast('背包满了，卸不下来');
+  else if (r === 'weapon') sc.toast('武器不能空着，换一把别的就行');
+  if (r !== 'ok') return;
+  s.hp = Math.min(s.hp, maxHp(s));
+  sc.sfx('blip');
+  sc.ui.panel.refresh();
+}
+
+/** 点中一件装备时右边（手机上是下面）的详情和操作 */
+function gearDetail(sc: PlayScene, g: Gear): HTMLElement {
+  const s = sc.s;
+  const on = equippedSlot(s, g.id);
+  const wearable = canWear(s, g);
+  const salvageNeedsConfirm = g.plus > 0 || g.q >= 2;
+  return h('div', { class: 'bag-detail' },
+    gearInfo(g),
+    compareInfo(s, g),
+    !wearable ? h('p', { class: 'muted', text: '这种武器还没有图纸，暂时用不了。可以分解，或者先放进仓库箱。' }) : null,
+    actionRow(
+      on ? actBtn('卸下', () => takeOff(sc, on), { disabled: on === 'weapon', note: on === 'weapon' ? '换一把别的武器' : undefined })
+        : actBtn('穿上', () => wear(sc, g), { disabled: !wearable }),
+      on ? null : confirmBtn(sc, `salvage:${g.id}`, `分解（萤尘×${salvageValue(g)}）`, () => {
+        const n = salvage(s, g.id);
+        picked = null;
+        sc.sfx('forge');
+        sc.toast(`分解了【${gearLabel(g)}】，得到萤尘×${n}`);
+        sc.ui.panel.refresh();
+      }, salvageNeedsConfirm),
+    ),
+  );
+}
+
+function itemDetail(sc: PlayScene, id: ItemId): HTMLElement {
+  const s = sc.s;
+  const def = ITEMS[id] as ItemDef;
+  const usable = !!(def.heal || def.energy || def.buff);
+  const sell = def.sell ? ` · 售价 ${def.sell} 金` : '';
+  const eff = def.buff ? ` · ${BUFF_TEXT[def.buff.stat](def.buff.value)}` : '';
+  const n = count(s, id);
+  return h('div', { class: 'bag-detail' },
+    h('div', { class: 'gear-head' },
+      h('img', { src: iconUrl(itemIcon(id)), alt: '' }),
+      h('div', {}, h('b', { text: def.name }), h('small', { text: `${KIND_NAME[def.kind]} · ${n} 个` })),
+    ),
+    h('p', { text: `${def.desc}${eff}${sell}` }),
+    actionRow(
+      usable ? actBtn('使用', () => {
+        if (consume(sc, id) && !count(s, id)) picked = null;
+        sc.ui.panel.refresh();
+      }) : null,
+      def.kind !== 'key' ? confirmBtn(sc, `drop:${id}`, n > 1 ? `丢掉全部 ${n} 个` : '丢掉', () => {
+        removeItem(s, id, n);
+        picked = null;
+        sc.sfx('blip');
+        sc.ui.panel.refresh();
+      }, true) : null,
+    ),
+  );
+}
+
 const KIND_NAME: Record<ItemKind, string> = {
   consumable: '药品', dish: '料理', crop: '作物', forage: '采集物', seed: '种子', accessory: '饰品', ore: '矿石', material: '怪物素材', key: '重要物品',
 };
@@ -32,80 +135,50 @@ function bagTab(sc: PlayScene): PanelTab {
     label: '背包',
     render: (body) => {
       const s = sc.s;
-      const detail = h('p', { class: 'detail', text: '选中物品查看说明。药品和作物可以直接使用。' });
-      let any = false;
-      for (const kind of KIND_ORDER) {
-        const ids = ITEM_IDS.filter((id) => ITEMS[id].kind === kind && count(s, id) > 0);
-        if (!ids.length) continue;
-        any = true;
-        const grid = h('div', { class: 'grid' });
-        for (const id of ids) {
-          const d = ITEMS[id];
-          const cell = itemCell(itemIcon(id), d.name, count(s, id));
-          const def = d as ItemDef;
-          const usable = !!(def.heal || def.energy || def.buff);
-          const isAcc = def.kind === 'accessory';
-          const describe = () => {
-            const sell = def.sell ? ` · 售价 ${def.sell} 金` : '';
-            const eff = def.buff ? ` · ${BUFF_TEXT[def.buff.stat](def.buff.value)}` : def.acc ? ` · ${accText(def)}` : '';
-            detail.textContent = `${def.name}：${def.desc}${eff}${sell}${usable ? ' · 按确认键使用' : isAcc ? ' · 按确认键戴上' : ''}`;
-          };
-          cell.addEventListener('focus', describe);
-          cell.addEventListener('pointerenter', describe);
-          cell.addEventListener('click', () => {
-            describe();
-            if (usable && consume(sc, id as ItemId)) sc.ui.panel.refresh();
-            else if (isAcc) equipAccessory(sc, id as ItemId);
-          });
-          grid.append(cell);
-        }
-        body.append(h('h3', { text: KIND_NAME[kind] }), grid);
+      const used = bagUsed(s);
+      const grid = h('div', { class: 'gslots' });
+      for (const c of bagCells(s)) {
+        const on = c.kind === 'gear' ? !!picked && 'gear' in picked && picked.gear === c.g.id : !!picked && 'item' in picked && picked.item === c.id;
+        const cell = c.kind === 'gear' ? gearCell(c.g, { on }) : itemSlotCell(c.id, c.n, { on });
+        cell.addEventListener('click', () => pick(sc, c.kind === 'gear' ? { gear: c.g.id } : { item: c.id }));
+        grid.append(cell);
       }
-      if (!any) body.append(h('p', { class: 'empty', text: '背包是空的。' }));
-      body.append(detail);
+      for (let i = used; i < s.bagSize; i++) grid.append(emptyCell());
+
+      let detail: HTMLElement = h('p', { class: 'muted', text: '点一下物品看说明。装备会和身上的那件比较，升了标绿，降了标红。' });
+      if (picked && 'gear' in picked) {
+        const g = gearById(s, picked.gear);
+        if (g && !inStash(s, g.id) && !equippedSlot(s, g.id)) detail = gearDetail(sc, g);
+      } else if (picked && 'item' in picked && count(s, picked.item) > 0) detail = itemDetail(sc, picked.item);
+
+      const cost = expandCost(s);
+      const head = h('div', { class: 'bag-head' },
+        h('b', { class: used > s.bagSize ? 'over' : '', text: `${used} / ${s.bagSize} 格` }),
+        actBtn('整理', () => {
+          sortBag(s);
+          sc.sfx('blip');
+          sc.ui.panel.refresh();
+        }),
+        actBtn('分解普通和优秀', () => {
+          const r = salvageUpTo(s, 1);
+          picked = null;
+          sc.sfx(r.count ? 'forge' : 'blip');
+          sc.toast(r.count ? `分解了 ${r.count} 件装备，得到萤尘×${r.essence}` : '没有可以分解的（强化过的不会动）');
+          sc.ui.panel.refresh();
+        }, { note: '强化过的不会动' }),
+        cost !== null ? actBtn(`扩容 +6 格`, () => {
+          if (expandBag(s)) {
+            sc.sfx('coin');
+            sc.toast(`背包扩到了 ${s.bagSize} 格`);
+          }
+          sc.ui.panel.refresh();
+        }, { disabled: s.gold < cost, note: `${cost} 金` }) : null,
+      );
+      body.append(head, h('div', { class: 'bag' }, grid, h('div', { class: 'bag-side' }, detail)));
+      if (used > s.bagSize) body.append(h('p', { class: 'muted', text: '背包超出容量了：新拿到的东西会被送回家里的仓库箱。' }));
+      else if (s.stash.gear.length || Object.keys(s.stash.items).length) body.append(h('p', { class: 'muted', text: '背包满了的时候，新东西会送回家里的仓库箱。' }));
     },
   };
-}
-
-const ACC_TEXT: Record<AccStat, (v: number) => string> = {
-  hp: (v) => `生命 +${v}`,
-  def: (v) => `防御 +${v}`,
-  atk: (v) => `攻击 +${Math.round(v * 100)}%`,
-  speed: (v) => `移速 +${Math.round(v * 100)}%`,
-  crit: (v) => `暴击 +${Math.round(v * 100)}%`,
-  lifesteal: (v) => `吸血 ${Math.round(v * 100)}%`,
-  luck: () => '运气更好',
-  xp: (v) => `经验 +${Math.round(v * 100)}%`,
-  regen: (v) => `每秒回复 ${v} 生命`,
-  light: (v) => `视野 +${Math.round(v * 100)}%`,
-};
-
-export const accText = (d: ItemDef): string =>
-  (Object.entries(d.acc ?? {}) as [AccStat, number][]).map(([k, v]) => ACC_TEXT[k](v)).join('，');
-
-/** 戴上饰品：满两件时替换掉先戴的那件 */
-function equipAccessory(sc: PlayScene, id: ItemId): void {
-  const s = sc.s;
-  if (!removeItem(s, id, 1)) return;
-  if (s.accessories.length >= 2) {
-    const old = s.accessories.shift()!;
-    addItem(s, old, 1);
-  }
-  s.accessories.push(id);
-  s.hp = Math.min(s.hp, maxHp(s));
-  sc.sfx('equip');
-  sc.toast(`戴上了【${ITEMS[id].name}】`);
-  sc.ui.panel.refresh();
-}
-
-function unequipAccessory(sc: PlayScene, idx: number): void {
-  const s = sc.s;
-  const [id] = s.accessories.splice(idx, 1);
-  if (!id) return;
-  addItem(s, id, 1);
-  s.hp = Math.min(s.hp, maxHp(s));
-  sc.sfx('blip');
-  sc.ui.panel.refresh();
 }
 
 function gearTab(sc: PlayScene): PanelTab {
@@ -116,55 +189,37 @@ function gearTab(sc: PlayScene): PanelTab {
       const s = sc.s;
       const C = CLASSES[s.cls];
       const row = (k: string, v: string) => h('div', { class: 'row' }, h('span', { text: k }), h('b', { text: v }));
-      const wt = WEAPON_TIERS[s.weapon.tier];
-      const at = ARMOR_TIERS[s.armor.tier];
-      const type = WEAPON_TYPES[s.weaponType];
 
-      // 武器类型：三选一，阶级和强化共用
-      const types = h('div', { class: 'wtypes' });
-      for (const t of typesOf(s.cls)) {
-        const d = weaponType(t);
-        const own = s.weaponTypes.includes(t);
-        const bp = d.blueprint;
-        const btn = h('button', { type: 'button', class: `wtype${t === s.weaponType ? ' on' : ''}${own ? '' : ' off'}`, 'data-nav': '' },
-          h('b', { text: own ? weaponName(s, s.weapon.tier, t) : `${d.name}（未解锁）` }),
-          h('small', { text: own ? d.desc : `老岩那里买图纸（最深到过第 ${bp?.floor ?? 1} 层后出现），或者在矿脉宝箱里找到` }),
-        );
-        btn.addEventListener('click', () => {
-          if (!own || t === s.weaponType) return;
-          s.weaponType = t;
-          sc.player.atkCd = 0.2;
-          sc.sfx('equip');
-          sc.toast(`换上了【${weaponName(s)}】`);
-          sc.ui.panel.refresh();
-        });
-        types.append(btn);
+      // 6 个装备格
+      const slots = h('div', { class: 'equip-slots' });
+      for (const slot of EQUIP_SLOTS) {
+        const g = equipped(s, slot);
+        const on = !!picked && 'slot' in picked && picked.slot === slot;
+        const cell = g ? gearCell(g, { on, tag: EQUIP_SLOT_NAME[slot] }) : h('button', { type: 'button', class: `slot-cell empty${on ? ' on' : ''}`, 'data-nav': '' }, h('i', { text: EQUIP_SLOT_NAME[slot] }));
+        cell.addEventListener('click', () => pick(sc, { slot }));
+        slots.append(h('div', { class: 'equip-slot' }, cell, h('small', { text: g ? gearName(g) : '空' })));
       }
 
-      // 饰品槽
-      const accs = h('div', { class: 'accs' });
-      for (let i = 0; i < 2; i++) {
-        const id = s.accessories[i];
-        if (!id) {
-          accs.append(h('div', { class: 'acc empty' }, h('span', { text: '空的饰品栏' }), h('small', { text: '在背包里点饰品就能戴上' })));
-          continue;
+      // 点中一个装备格：看身上那件，下面列出背包里能换上的
+      let side: HTMLElement = h('p', { class: 'muted', text: '点一个装备格，看身上的装备和背包里能换上的。' });
+      let pickedGear: Gear | undefined;
+      if (picked && 'gear' in picked) pickedGear = gearById(s, picked.gear);
+      const slot = picked && 'slot' in picked ? picked.slot : pickedGear ? (equippedSlot(s, pickedGear.id) ?? targetSlot(s, pickedGear)) : null;
+      if (slot) {
+        const cur = equipped(s, slot);
+        const kind = slot === 'acc1' || slot === 'acc2' ? 'acc' : slot;
+        const options = bagGear(s).filter((g) => g.slot === kind && canWear(s, g));
+        const list = h('div', { class: 'gslots' });
+        for (const g of options) {
+          const c = gearCell(g, { on: pickedGear?.id === g.id });
+          c.addEventListener('click', () => pick(sc, { gear: g.id }));
+          list.append(c);
         }
-        const d = ITEMS[id] as ItemDef;
-        const btn = h('button', { type: 'button', class: 'acc', 'data-nav': '' },
-          h('img', { src: iconUrl(itemIcon(id)), alt: '' }),
-          h('span', {}, h('b', { text: d.name }), h('small', { text: accText(d) })),
-          h('em', { text: '取下' }),
+        side = h('div', {},
+          pickedGear && !equippedSlot(s, pickedGear.id) ? gearDetail(sc, pickedGear) : cur ? gearDetail(sc, cur) : h('p', { class: 'muted', text: `${EQUIP_SLOT_NAME[slot]}格空着。` }),
+          h('h3', { text: options.length ? `背包里可以换上的${EQUIP_SLOT_NAME[slot]}` : `背包里没有可以换上的${EQUIP_SLOT_NAME[slot]}` }),
+          options.length ? list : null,
         );
-        btn.addEventListener('click', () => unequipAccessory(sc, i));
-        accs.append(btn);
-      }
-      const spare = ITEM_IDS.filter((id) => ITEMS[id].kind === 'accessory' && count(s, id) > 0);
-      const spareRow = h('div', { class: 'grid' });
-      for (const id of spare) {
-        const cell = itemCell(itemIcon(id), ITEMS[id].name, count(s, id));
-        cell.title = `${ITEMS[id].name}：${accText(ITEMS[id] as ItemDef)}`;
-        cell.addEventListener('click', () => equipAccessory(sc, id));
-        spareRow.append(cell);
       }
 
       const skills = h('dl', { class: 'keys skills-list' });
@@ -174,41 +229,32 @@ function gearTab(sc: PlayScene): PanelTab {
           h('dd', { text: s.level >= k.level ? `${k.desc}（冷却 ${k.cooldown}s，体力 ${k.cost}）` : `${k.level} 级解锁：${k.desc}` }),
         );
       });
+      const types = typesOf(s.cls).map((t) => {
+        const d = weaponType(t);
+        return `${d.name}${s.weaponTypes.includes(t) ? '' : '（没有图纸）'}`;
+      }).join('、');
+      const wt = weaponTypeOf(s);
 
       body.append(
-        h('div', { class: 'cards' },
-          h('section', { class: 'card' },
-            h('h3', { text: `武器 · ${type.name}` }),
-            h('p', { class: 'big', text: `${weaponName(s)} +${s.weapon.plus}` }),
-            row('阶级', `${s.weapon.tier + 1} / ${WEAPON_TIERS.length}`),
-            row('基础攻击', `${wt.atk} × ${type.mul}`),
-            row('攻击间隔', `${type.cooldown}s`),
-            row('强化', `+${s.weapon.plus} / +${MAX_PLUS}`),
+        h('div', { class: 'bag' },
+          h('div', {},
+            slots,
+            h('section', { class: 'card' },
+              h('h3', { text: `${C.name} · Lv.${s.level}` }),
+              row('经验', s.level >= MAX_LEVEL ? '已满级' : `${s.xp} / ${xpToNext(s.level)}`),
+              row('攻击力', String(attack(s))),
+              row('防御力', String(defense(s))),
+              row('生命上限', String(maxHp(s))),
+              row('暴击率', `${Math.round(critChance(s) * 100)}%`),
+              row('武器', `${wt.name} · 攻击间隔 ${wt.cooldown}s`),
+            ),
           ),
-          h('section', { class: 'card' },
-            h('h3', { text: '护甲' }),
-            h('p', { class: 'big', text: `${armorName(s.armor.tier)} +${s.armor.plus}` }),
-            row('阶级', `${s.armor.tier + 1} / ${ARMOR_TIERS.length}`),
-            row('基础防御', String(at.def)),
-            row('强化', `+${s.armor.plus} / +${MAX_PLUS}`),
-          ),
-          h('section', { class: 'card' },
-            h('h3', { text: `${C.name} · Lv.${s.level}` }),
-            row('经验', s.level >= MAX_LEVEL ? '已满级' : `${s.xp} / ${xpToNext(s.level)}`),
-            row('攻击力', String(attack(s))),
-            row('防御力', String(defense(s))),
-            row('生命上限', String(maxHp(s))),
-            row('暴击率', `${Math.round(critChance(s) * 100)}%`),
-          ),
+          h('div', { class: 'bag-side' }, side),
         ),
-        h('h3', { text: '武器类型' }),
-        types,
-        h('h3', { text: '饰品（最多两件）' }),
-        accs,
-        ...(spare.length ? [spareRow] : []),
+        h('p', { class: 'muted', text: `武器类型：${types}。换武器就是换一把别的类型的武器；新的图纸在老岩那里买，或者在宝箱里找到。` }),
         h('h3', { text: '技能' }),
         skills,
-        h('p', { class: 'muted', text: '去铁匠铺找老岩锻造更高阶的装备、强化，或者买新的武器图纸。' }),
+        h('p', { class: 'muted', text: '去铁匠铺找老岩强化装备、提升品质、升阶。' }),
       );
     },
   };
@@ -280,6 +326,8 @@ function questTab(sc: PlayScene): PanelTab {
 
 export function openInventory(sc: PlayScene, tab = 'bag'): void {
   sc.sfx('select');
+  picked = null;
+  confirming = '';
   sc.ui.panel.show('背包', [bagTab(sc), gearTab(sc), peopleTab(sc), questTab(sc)], { tab });
 }
 

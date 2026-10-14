@@ -1,14 +1,20 @@
 import type { ClassId } from '../data/classes';
+import type { Gear, NewGear } from '../data/gear';
+import { CHEST_GEAR_CHANCE, gearTierFor } from '../data/gear';
 import type { ItemId } from '../data/items';
 import type { WeaponTypeId } from '../data/weapons';
 import { typesOf, weaponType } from '../data/weapons';
 import type { SaveData } from '../state/save';
-import { addItem, owns } from '../state/save';
+import { addItem, giveGear, owns } from '../state/save';
+import { rollGear, unlockWeaponType } from './gear';
+import { accSum } from './stats';
 
 export interface Loot {
   gold: number;
   items: Partial<Record<ItemId, number>>;
   blueprint: WeaponTypeId | null;
+  /** 宝箱里的装备，品质和阶级看楼层 */
+  gear: NewGear | null;
 }
 
 interface Table {
@@ -44,11 +50,11 @@ export function blueprintsFor(cls: ClassId, have: WeaponTypeId[], floor: number)
   });
 }
 
-/** 开宝箱：一定有金币和一样东西，有几率出饰品或者武器图纸 */
+/** 开宝箱：一定有金币和一样东西，有几率出饰品或者武器图纸，还有几率出一件装备 */
 export function rollChest(s: SaveData, floor: number, rand: () => number = Math.random): Loot {
   const t = (TABLES.find((x) => floor <= x.to) ?? TABLES[TABLES.length - 1]).t;
   const r = (a: number, b: number) => a + Math.floor(rand() * (b - a + 1));
-  const loot: Loot = { gold: r(t.gold[0], t.gold[1]), items: {}, blueprint: null };
+  const loot: Loot = { gold: r(t.gold[0], t.gold[1]), items: {}, blueprint: null, gear: null };
   const pool = t.items.filter((i) => !i.from || floor >= i.from);
   const total = pool.reduce((a, i) => a + i.w, 0);
   let roll = rand() * total;
@@ -69,12 +75,22 @@ export function rollChest(s: SaveData, floor: number, rand: () => number = Math.
     if (bps.length) loot.blueprint = bps[Math.floor(rand() * bps.length)];
     else loot.gold += r(40, 90);
   }
+  if (rand() < CHEST_GEAR_CHANCE) {
+    loot.gear = rollGear({ cls: s.cls, types: s.weaponTypes, tier: gearTierFor(floor), source: 'chest', luck: accSum(s, 'luck') }, rand);
+  }
   return loot;
 }
 
-export function applyLoot(s: SaveData, loot: Loot): void {
+/** 把宝箱里的东西放进背包，返回拿到的装备（图纸送的武器也算） */
+export function applyLoot(s: SaveData, loot: Loot): Gear[] {
   s.gold += loot.gold;
   for (const [id, n] of Object.entries(loot.items) as [ItemId, number][]) addItem(s, id, n);
-  if (loot.blueprint && !s.weaponTypes.includes(loot.blueprint)) s.weaponTypes.push(loot.blueprint);
+  const got: Gear[] = [];
+  if (loot.blueprint) {
+    const w = unlockWeaponType(s, loot.blueprint);
+    if (w) got.push(w);
+  }
+  if (loot.gear) got.push(giveGear(s, loot.gear));
+  return got;
 }
 
