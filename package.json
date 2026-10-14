@@ -1,0 +1,19 @@
+{
+  "name": "firefly-valley",
+  "private": true,
+  "version": "0.2.0",
+  "description": "萤石谷 Firefly Valley：像素风农场生活 + 地下城 RPG",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vitest": "3.2.4"
+  }
+}
