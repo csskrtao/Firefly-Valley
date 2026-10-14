@@ -3,6 +3,8 @@ export const TAU = Math.PI * 2;
 export const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
 export const ri = (a: number, b: number): number => Math.floor(rnd(a, b + 1));
 export const clamp = (v: number, a: number, b: number): number => Math.max(a, Math.min(b, v));
+/** 结果总在 [0, n) 里的取模 */
+export const wrap = (v: number, n: number): number => ((v % n) + n) % n;
 export const pick = <T>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
 /** 稳定的二维哈希，返回 [0,1)，用于给地块做不随帧变化的随机花纹。 */

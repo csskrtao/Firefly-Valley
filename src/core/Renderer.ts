@@ -1,7 +1,7 @@
-import { VH, VW } from './constants';
+import { VW, setView, viewFor } from './constants';
 
 /**
- * 所有世界画面先画到 480×270 的离屏缓冲，再整块放大到屏幕，
+ * 所有世界画面先画到离屏缓冲（横屏 480×270，竖屏更高），再整块放大到屏幕，
  * 这样像素边缘不会出现缝隙。文字（伤害数字、Boss 名）直接画在高分辨率主画布上保持清晰。
  */
 export class Renderer {
@@ -14,19 +14,26 @@ export class Renderer {
   constructor(readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.buf = document.createElement('canvas');
-    this.buf.width = VW;
-    this.buf.height = VH;
     this.b = this.buf.getContext('2d')!;
-    this.b.imageSmoothingEnabled = false;
+    // 画布大小会随窗口和竖屏布局（开始游戏后画面变高）变化
+    new ResizeObserver(() => this.resize()).observe(canvas);
     window.addEventListener('resize', () => this.resize());
     this.resize();
   }
 
   resize(): void {
     const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return;
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.max(1, Math.round(r.width * dpr));
     this.canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const [w, h] = viewFor(r.width, r.height);
+    if (this.buf.width !== w || this.buf.height !== h) {
+      setView(w, h);
+      this.buf.width = w;
+      this.buf.height = h;
+    }
+    this.b.imageSmoothingEnabled = false;
     this.K = this.canvas.width / VW;
   }
 
