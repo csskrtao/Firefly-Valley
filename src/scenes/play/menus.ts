@@ -23,6 +23,7 @@ import { h } from '../../ui/dom';
 import type { PanelTab } from '../../ui/UI';
 import type { PlayScene } from '../PlayScene';
 import { consume } from './actions';
+import { bookTab } from './explore';
 import { actBtn, actionRow, compareInfo, emptyCell, gearCell, gearInfo, itemSlotCell, targetSlot } from './gearui';
 
 /** 背包和装备页里当前点中的东西，刷新面板时保留 */
@@ -328,7 +329,7 @@ export function openInventory(sc: PlayScene, tab = 'bag'): void {
   sc.sfx('select');
   picked = null;
   confirming = '';
-  sc.ui.panel.show('背包', [bagTab(sc), gearTab(sc), peopleTab(sc), questTab(sc)], { tab });
+  sc.ui.panel.show('背包', [bagTab(sc), gearTab(sc), peopleTab(sc), questTab(sc), bookTab(sc)], { tab });
 }
 
 export function openPause(sc: PlayScene): void {

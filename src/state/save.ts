@@ -10,6 +10,8 @@ import { ITEMS } from '../data/items';
 import type { BossId, MonsterId } from '../data/monsters';
 import type { NpcId } from '../data/npcs';
 import { NPC_IDS } from '../data/npcs';
+import type { ExploreState } from '../data/treasure';
+import { newExplore } from '../data/treasure';
 import type { WeaponTypeId } from '../data/weapons';
 import { WEAPON_TYPES, defaultType } from '../data/weapons';
 
@@ -94,6 +96,8 @@ export interface SaveData {
   quest: { index: number; active: boolean; progress: number };
   kills: Partial<Record<MonsterId, number>>;
   perks: string[];
+  /** 户外探险：挖宝点、藏宝图、隐藏宝箱、随机事件和收集册 */
+  explore: ExploreState;
   tip: number;
   playTime: number;
   savedAt: number;
@@ -135,6 +139,7 @@ export function newSave(slot: number, cls: ClassId): SaveData {
     quest: { index: 0, active: false, progress: 0 },
     kills: {},
     perks: [],
+    explore: newExplore(),
     tip: 0,
     playTime: 0,
     savedAt: Date.now(),
@@ -166,6 +171,7 @@ export function migrate(raw: unknown): SaveData | null {
   merged.weaponTypes = [...new Set([defaultType(r.cls), ...own])];
   if (!merged.weaponTypes.includes(merged.weaponType)) merged.weaponType = defaultType(r.cls);
   merged.forage = { ...r.forage };
+  merged.explore = { ...base.explore, ...r.explore };
   merged.level = Math.max(1, r.level ?? 1);
   if ((r.version ?? 1) < 3 && r.field) {
     merged.field = {};

@@ -14,7 +14,7 @@ export interface Loot {
   items: Partial<Record<ItemId, number>>;
   blueprint: WeaponTypeId | null;
   /** 宝箱里的装备，品质和阶级看楼层 */
-  gear: NewGear | null;
+  gear?: NewGear | null;
 }
 
 interface Table {

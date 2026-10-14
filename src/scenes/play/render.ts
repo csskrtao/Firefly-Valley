@@ -23,6 +23,7 @@ import type { Building } from '../../world/overworld';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { drawShot, drawStrikes, lightMul, orbCount, orbPos } from './combat';
+import { drawExplore, exploreHighlight, exploreLights } from './explore';
 
 const dark = document.createElement('canvas');
 dark.width = VW;
@@ -122,6 +123,7 @@ export function renderPlay(sc: PlayScene): void {
       const bob = Math.round(Math.sin(sc.clock * 3 + x + y) * 0.6);
       b.drawImage(forageImg(id), x * TS - cx, y * TS - cy + bob);
     }
+    drawExplore(sc, b, cx, cy, list);
   }
 
   // 面前可交互格子的提示框
@@ -129,7 +131,7 @@ export function renderPlay(sc: PlayScene): void {
     const [tx, ty] = sc.player.frontTile();
     const t = map.get(tx, ty);
     const show = town
-      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN
+      ? t === Tile.FIELD || t === Tile.DOOR || t === Tile.BIN || t === Tile.CAVE || t === Tile.SIGN || exploreHighlight(sc, tx, ty)
       : t === Tile.STAIRS || t === Tile.LADDER || sc.ores.some((o) => o.tx === tx && o.ty === ty) || sc.chests.some((c) => !c.open && c.tx === tx && c.ty === ty);
     if (show) {
       b.strokeStyle = 'rgba(255,255,255,.55)';
@@ -718,6 +720,7 @@ function drawLighting(sc: PlayScene, cx: number, cy: number): void {
       const [x, y] = k.split(',').map(Number);
       hole(x * TS + 8 - cx, y * TS + 8 - cy, 18, 0.7);
     }
+    for (const [x, y] of exploreLights(sc)) if (visible(x - cx, y - cy, 60)) hole(x - cx, y - 8 - cy, 40, 0.85);
     for (const [k, f] of Object.entries(sc.s.field)) {
       if (f.crop === 'berry' && f.days >= CROPS.berry.days) {
         const [x, y] = k.split(',').map(Number);
