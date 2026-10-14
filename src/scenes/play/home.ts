@@ -36,6 +36,7 @@ const itemName = (id: ItemId) => ITEMS[id].name;
 interface Pristine {
   tiles: Uint8Array;
   forage: Record<ForageArea, [number, number][]>;
+  dig: [number, number][];
   homeW: number;
 }
 const pristine = new WeakMap<Overworld, Pristine>();
@@ -51,6 +52,7 @@ export function applyHome(sc: PlayScene): void {
     p = {
       tiles: m.t.slice(),
       forage: { forest: [...ow.forage.forest], meadow: [...ow.forage.meadow], beach: [...ow.forage.beach] },
+      dig: [...sc.explore.sites.digCells],
       homeW: homeB?.w ?? 6,
     };
     pristine.set(ow, p);
@@ -76,6 +78,12 @@ export function applyHome(sc: PlayScene): void {
     const [x, y] = k.split(',').map(Number);
     if (m.solid(x, y)) delete s.forage[k];
   }
+  // 挖宝点也不能冒在设施底下
+  sc.explore.sites.digCells = p.dig.filter(([x, y]) => !m.solid(x, y));
+  s.explore.digs = s.explore.digs.filter((k) => {
+    const [x, y] = k.split(',').map(Number);
+    return !m.solid(x, y);
+  });
 }
 
 const woodSpots = (sc: PlayScene): [number, number][] => [...sc.overworld.forage.forest, ...sc.overworld.forage.meadow];

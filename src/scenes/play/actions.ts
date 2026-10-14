@@ -5,6 +5,7 @@ import type { ItemId } from '../../data/items';
 import { ITEMS, ITEM_IDS, itemDef } from '../../data/items';
 import { addItem, count } from '../../state/save';
 import { applyDishBuff } from '../../systems/cooking';
+import { record } from '../../systems/explore';
 import { pickForage } from '../../systems/forage';
 import { applyLoot, rollChest } from '../../systems/loot';
 import { WEAPON_TYPES } from '../../data/weapons';
@@ -16,6 +17,7 @@ import { accSum, maxHp } from '../../systems/stats';
 import { Tile } from '../../world/TileMap';
 import type { PlayScene } from '../PlayScene';
 import { homeInteract, oreStoneBonus, tryQuarry } from './home';
+import { exploreInteract } from './explore';
 import { homeMenu, mineEntrance, talkTo } from './town';
 
 export const TOOLS = [
@@ -219,6 +221,7 @@ export function interact(sc: PlayScene): void {
       return;
     }
     if (homeInteract(sc, tx, ty)) return;
+    if (exploreInteract(sc, tx, ty)) return;
     if (t === Tile.DOOR) {
       const b = sc.overworld.buildings.find((bb) => bb.door[0] === tx && bb.door[1] === ty);
       if (!b) return;
@@ -303,6 +306,7 @@ function collectForage(sc: PlayScene, key: string, tx: number, ty: number): void
   const lucky = Math.random() < (s.cls === 'rogue' ? 0.3 : 0) + accSum(s, 'luck') * 0.2;
   const got = pickForage(s, key, lucky);
   if (!got) return;
+  record(s, got.id);
   sc.sfx('pickup');
   sc.fx.burst(tx * TS + 8, ty * TS + 10, ITEMS[got.id].color, 6, 30);
   sc.fx.text(tx * TS + 8, ty * TS - 6, `+${got.n} ${ITEMS[got.id].name}`, ITEMS[got.id].color);

@@ -45,6 +45,7 @@ import { Fx } from './play/fx';
 import type { Placing } from './play/home';
 import { cancelPlacing, enterHome, homeNewDay, updatePlacing } from './play/home';
 import { lateEnergy } from '../systems/home';
+import { ExploreWorld, enterOutdoor, exploreBlocked, exploreDay, updateOutdoor } from './play/explore';
 import { openInventory, openPause } from './play/menus';
 import { renderPlay } from './play/render';
 
@@ -77,6 +78,8 @@ export class PlayScene implements Scene, EnemyHost {
   readonly camera = new Camera();
   readonly fx = new Fx();
   readonly overworld: Overworld = buildOverworld();
+  /** 户外探险：挖宝点、隐藏宝箱、户外怪物和随机事件 */
+  readonly explore = new ExploreWorld(this.overworld);
   mode: Mode = 'town';
   floor = 0;
   map: TileMap = this.overworld.map;
@@ -118,6 +121,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.s.hp = Math.min(this.s.hp, this.maxHp);
     enterHome(this);
     if (this.s.forageDay !== this.s.day) spawnForage(this.s, this.overworld.forage);
+    exploreDay(this);
     this.enterTown(this.overworld.spawns.home, 1);
     if (this.s.playTime === 0) {
       const face = this.npcFace('owl');
@@ -178,6 +182,7 @@ export class PlayScene implements Scene, EnemyHost {
       const canWalk = (tx: number, ty: number) => !this.map.solid(tx, ty) && !(tx === px && ty === py);
       for (const n of this.npcs) n.update(dt, s.time, this.map, canWalk, this.player);
       pickupForage(this);
+      updateOutdoor(this, dt);
     } else {
       for (const e of this.enemies.slice()) e.update(this, dt);
       combat.updateCombat(this, dt);
@@ -247,7 +252,7 @@ export class PlayScene implements Scene, EnemyHost {
       if (input.pressed('attack') || input.held('attack')) combat.attack(this);
       (['skill', 'skill2', 'skill3'] as const).forEach((a, i) => {
         if (!input.pressed(a)) return;
-        if (this.mode === 'town') this.toast('技能留到矿脉里再用吧');
+        if (this.mode === 'town' && !this.enemies.length) this.toast('附近没有怪物，技能留到需要的时候再用吧');
         else combat.useSkill(this, i);
       });
       if (input.pressed('tool')) useTool(this);
@@ -377,7 +382,7 @@ export class PlayScene implements Scene, EnemyHost {
     if (fly) return this.map.get(tx, ty) === Tile.ROCK;
     if (this.map.solid(tx, ty)) return true;
     if (this.mode === 'mine') return this.ores.some((o) => o.tx === tx && o.ty === ty) || this.chests.some((c) => c.tx === tx && c.ty === ty);
-    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty);
+    return this.npcs.some((n) => n.tile[0] === tx && n.tile[1] === ty) || exploreBlocked(this, tx, ty);
   }
 
   boxFree(x: number, y: number, hw: number, hh: number, fly = false): boolean {
@@ -481,6 +486,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.npcs = NPC_IDS.map((id) => new Npc(id, this.s.time));
     this.player.place(spawn[0], spawn[1]);
     this.player.face(0, fy);
+    enterOutdoor(this);
     this.setMusic();
   }
 
@@ -560,6 +566,7 @@ export class PlayScene implements Scene, EnemyHost {
     this.collapsing = true;
     this.ui.closeAll();
     const lost = Math.floor(this.s.gold * 0.1);
+    const where = this.mode === 'mine' ? '矿里' : '野外';
     this.s.gold -= lost;
     this.ui.fade.run(reason === 'late' ? '凌晨 2:00……' : '', () => {
       const msgs = this.newDay();
@@ -568,7 +575,7 @@ export class PlayScene implements Scene, EnemyHost {
       const face = this.npcFace('owl');
       const text = reason === 'late'
         ? `你在外面睡着了。我把你拖回了家，收了 ${lost} 金币当运费，咕。`
-        : `你在矿里晕倒了，莉娅和我把你抬了回来。诊费 ${lost} 金币，咕。`;
+        : `你在${where}晕倒了，莉娅和我把你抬了回来。诊费 ${lost} 金币，咕。`;
       this.ui.dialog.say('猫头鹰·咕咕', text, { face });
       this.morning(msgs);
       this.collapsing = false;
@@ -586,6 +593,7 @@ export class PlayScene implements Scene, EnemyHost {
     s.hp = this.maxHp;
     const homeMsgs = homeNewDay(this);
     spawnForage(s, this.overworld.forage);
+    const news = exploreDay(this);
     this.enterTown(this.overworld.spawns.home, 1);
     const msgs: string[] = [];
     if (seasonOf(s.day) !== prevSeason) msgs.push(SEASON_GREETING[seasonOf(s.day)]);
@@ -593,6 +601,7 @@ export class PlayScene implements Scene, EnemyHost {
     if (s.weather === 'rain') msgs.push('外面在下雨，田里的作物都被浇透了。');
     else if (s.weather === 'snow') msgs.push('下雪了，整个山谷白茫茫的。');
     msgs.push(...homeMsgs);
+    msgs.push(...news);
     if (!this.saveGame()) msgs.push('存档失败：浏览器不允许保存数据。');
     return msgs;
   }

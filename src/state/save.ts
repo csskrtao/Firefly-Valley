@@ -9,6 +9,8 @@ import { newHome } from '../data/buildings';
 import type { BossId, MonsterId } from '../data/monsters';
 import type { NpcId } from '../data/npcs';
 import { NPC_IDS } from '../data/npcs';
+import type { ExploreState } from '../data/treasure';
+import { newExplore } from '../data/treasure';
 import type { WeaponTypeId } from '../data/weapons';
 import { WEAPON_TYPES, defaultType } from '../data/weapons';
 
@@ -76,6 +78,8 @@ export interface SaveData {
   quest: { index: number; active: boolean; progress: number };
   kills: Partial<Record<MonsterId, number>>;
   perks: string[];
+  /** 户外探险：挖宝点、藏宝图、隐藏宝箱、随机事件和收集册 */
+  explore: ExploreState;
   tip: number;
   /** 家园：房子等级、农场上的设施和装饰、温室、鸡舍 */
   home: HomeState;
@@ -116,6 +120,7 @@ export function newSave(slot: number, cls: ClassId): SaveData {
     quest: { index: 0, active: false, progress: 0 },
     kills: {},
     perks: [],
+    explore: newExplore(),
     tip: 0,
     home: newHome(),
     playTime: 0,
@@ -146,6 +151,7 @@ export function migrate(raw: unknown): SaveData | null {
   merged.accessories = (r.accessories ?? []).filter((id) => id in ITEMS && ITEMS[id].kind === 'accessory').slice(0, 2);
   merged.forage = { ...r.forage };
   merged.home = { ...base.home, ...r.home };
+  merged.explore = { ...base.explore, ...r.explore };
   merged.level = Math.max(1, r.level ?? 1);
   if ((r.version ?? 1) < 3 && r.field) {
     merged.field = {};

@@ -98,6 +98,14 @@ export const ITEMS = {
   claw: { name: '钻地鼠爪', kind: 'material', desc: '能挖穿岩石的爪子。', color: '#d9d2c0', sell: 22 },
   crown: { name: '王冠凝胶', kind: 'key', desc: '史莱姆王的王冠化成的凝胶。打造金器要用。', color: '#ffd34d' },
   fang: { name: '掘地者之牙', kind: 'key', desc: '铁颚掘地者的獠牙。打造萤石武器要用。', color: '#c9d4e0' },
+  shovel: { name: '祖母的铲子', kind: 'key', desc: '祖母留下的旧铲子。对着地上闪光的地方按 E 就能挖宝。', color: '#9a8a78' },
+  treasureMap: { name: '藏宝图', kind: 'key', desc: '画着埋宝地点的旧地图。在背包的收集册页能看到它指向哪里，走近了地上会出现红叉。', color: '#e8d4a0' },
+  // 宝物（挖宝、藏宝图、隐藏宝箱，收集册会记下来）
+  oldCoin: { name: '古铜币', kind: 'material', desc: '不知道哪个年代的铜币，上面刻着一只萤火虫。', color: '#c98a3a', sell: 40 },
+  amber: { name: '琥珀', kind: 'material', desc: '里面封着一只小虫子。', color: '#f0a040', sell: 90 },
+  fossil: { name: '贝壳化石', kind: 'material', desc: '很久以前这里大概是一片海。', color: '#d9d2c0', sell: 140 },
+  starShard: { name: '星之碎片', kind: 'material', desc: '据说是流星落在山谷里留下的，摸起来暖暖的。', color: '#ffe680', sell: 260 },
+  goldIdol: { name: '黄金小像', kind: 'material', desc: '一尊小小的金像，雕的是一只猫头鹰。咕咕看了会很得意。', color: '#ffd34d', sell: 520 },
   // 消耗品
   potion: { name: '治疗药水', kind: 'consumable', desc: '回复 60 生命。', color: '#ef5d5d', buy: 60, heal: 60 },
   bigPotion: { name: '高级药水', kind: 'consumable', desc: '回复 150 生命。', color: '#ff8fb3', buy: 160, heal: 150 },
@@ -113,6 +121,10 @@ export const ITEMS = {
   scholarGlasses: { name: '学者眼镜', kind: 'accessory', desc: '艾恩的旧眼镜。战斗时更容易总结经验。', color: '#ffcf5a', acc: { xp: 0.25 } },
   crownRing: { name: '王冠戒指', kind: 'accessory', desc: '用史莱姆王的凝胶做的戒指。', color: '#b06bd8', sell: 260, acc: { hp: 20, atk: 0.05 } },
   jawCharm: { name: '铁颚护符', kind: 'accessory', desc: '铁颚掘地者的碎齿磨成的护符。', color: '#c9d4e0', sell: 400, acc: { atk: 0.15, def: 2 } },
+  bronzeAmulet: { name: '古铜护身符', kind: 'accessory', desc: '石圈里的宝箱找到的，沉甸甸的很安心。', color: '#b0703a', sell: 220, acc: { def: 2, hp: 15 } },
+  emberCharm: { name: '余烬护符', kind: 'accessory', desc: '火盆里一直没熄的火星，握着手心发热。', color: '#ff8a3a', sell: 260, acc: { atk: 0.08, light: 0.2 } },
+  travelerPin: { name: '旅人别针', kind: 'accessory', desc: '绕了一大圈才拿到的别针，走远路也不累。', color: '#3f8f7a', sell: 220, acc: { speed: 0.08, regen: 0.3 } },
+  compass: { name: '寻宝罗盘', kind: 'accessory', desc: '收集册的宝藏页集齐后得到的罗盘。挖宝更容易多得，也更容易挖到藏宝图。', color: '#ffcf5a', sell: 500, acc: { luck: 1, speed: 0.05 } },
   // 建材：盖房子、造设施用。木材在地上捡或者找薇拉买，石料用镐敲地上的石头或者挖矿时顺带得到，锭在熔炉里炼
   wood: { name: '木材', kind: 'build', desc: '林子和草地上捡到的木头，也可以在杂货店买。盖房子、造设施都要用。', color: '#a8743a', buy: 12, sell: 4, seasons: [0, 1, 2, 3], glyph: 'log' },
   stone: { name: '石料', kind: 'build', desc: '用镐敲碎地上的石头，或者在矿里挖矿时顺带得到。', color: '#a9a39b', sell: 3 },
