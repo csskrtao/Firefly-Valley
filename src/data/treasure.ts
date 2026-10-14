@@ -1,18 +1,24 @@
+import type { RegionId } from '../world/regions/defs';
+import type { NewGear } from './gear';
 import type { ItemId } from './items';
 import type { MonsterId } from './monsters';
 
 /**
  * 户外探险的数据：挖宝点、藏宝图的埋宝地点、隐藏宝箱、户外怪物、随机事件和收集册。
- * 坐标暂时都在萤石镇的地图上；世界地图做好以后再按区域拆开。
+ * 萤石镇的位置写在这里；野外区域的位置由 world/exploreSites.ts 从区域地图的候选格子里挑。
  */
+
+/** 野外区域（萤石镇以外） */
+export type WildRegion = Exclude<RegionId, 'town'>;
 
 /** 一个格子的坐标 */
 export type Cell = [number, number];
 
 /* ---------- 挖宝 ---------- */
 
-/** 每天地上冒出几个闪光点 */
-export const DIG_DAILY: [number, number] = [3, 5];
+/** 每天地上冒出几个闪光点：萤石镇，和每个能去的野外区域 */
+export const DIG_DAILY: [number, number] = [2, 4];
+export const DIG_DAILY_WILD: [number, number] = [1, 3];
 /** 挖一次花的体力 */
 export const DIG_COST = 4;
 
@@ -27,11 +33,9 @@ export const DIG_TABLE: { id: ItemId | 'forage'; n: [number, number]; w: number 
   { id: 'potion', n: [1, 1], w: 1 },
 ];
 export const DIG_GOLD: [number, number] = [10, 40];
-/** 挖出藏宝图、饰品的几率 */
+/** 挖出藏宝图、装备的几率 */
 export const DIG_MAP_CHANCE = 0.1;
-export const DIG_ACC_CHANCE = 0.04;
-/** 挖宝和宝箱可能出的饰品（已经有的不会再出） */
-export const TREASURE_ACCESSORIES: ItemId[] = ['copperRing', 'powerCharm', 'mossCharm', 'clover', 'vampFang', 'glowPendant'];
+export const DIG_GEAR_CHANCE = 0.06;
 
 /** 藏宝图指向的埋宝地点，hint 是地图背面写的话 */
 export const MAP_SPOTS: { at: Cell; hint: string }[] = [
@@ -41,16 +45,19 @@ export const MAP_SPOTS: { at: Cell; hint: string }[] = [
   { at: [35, 39], hint: '河的北岸，木桥往西十来步的草地。' },
   { at: [54, 46], hint: '去矿脉的路往东，河南岸的草地。' },
 ];
-/** 藏宝图的宝藏：金币多，一定有一件稀有宝物 */
+/** 藏宝图的宝藏：金币多，一定有一件稀有宝物和一件装备（运气按这个值算，品质更容易高） */
 export const MAP_GOLD: [number, number] = [150, 300];
+export const MAP_GEAR_LUCK = 3;
 export const MAP_TREASURES: ItemId[] = ['starShard', 'goldIdol', 'fossil'];
 
 /* ---------- 隐藏宝箱 ---------- */
 
-export type HiddenId = 'boulder' | 'brazier' | 'detour';
+/** 萤石镇的三个隐藏宝箱；野外区域每个区域一个，用区域 id 当编号 */
+export type TownHiddenId = 'boulder' | 'brazier' | 'detour';
+export type HiddenId = TownHiddenId | WildRegion;
 
 export interface HiddenChest {
-  id: HiddenId;
+  id: TownHiddenId;
   name: string;
   /** 宝箱的位置 */
   at: Cell;
@@ -59,12 +66,34 @@ export interface HiddenChest {
   color: string;
 }
 
-export const HIDDEN_CHESTS: Record<HiddenId, HiddenChest> = {
+export const HIDDEN_CHESTS: Record<TownHiddenId, HiddenChest> = {
   boulder: { id: 'boulder', name: '石圈里的宝箱', at: [35, 43], reward: { gold: 200, items: { bronzeAmulet: 1, amber: 1 } }, color: '#8a8f9a' },
   brazier: { id: 'brazier', name: '火盆中间的宝箱', at: [76, 24], reward: { gold: 260, items: { emberCharm: 1, starShard: 1 } }, color: '#c94a3a' },
   detour: { id: 'detour', name: '河对岸的宝箱', at: [60, 46], reward: { gold: 180, items: { travelerPin: 1, fossil: 1 } }, color: '#3f8f7a' },
 };
-export const HIDDEN_IDS = Object.keys(HIDDEN_CHESTS) as HiddenId[];
+export const TOWN_HIDDEN_IDS = Object.keys(HIDDEN_CHESTS) as TownHiddenId[];
+
+/**
+ * 野外区域的隐藏宝箱：放在离路标最远的角落（绕路），或者要先点亮周围的三个火盆。
+ * 里面一定有一件稀有以上的装备，阶级按区域强度算。
+ */
+export interface WildHidden {
+  name: string;
+  puzzle: 'brazier' | 'far';
+  color: string;
+  gold: number;
+  items: Partial<Record<ItemId, number>>;
+}
+
+export const WILD_HIDDEN: Record<WildRegion, WildHidden> = {
+  mistwood: { name: '雾林火盆间的宝箱', puzzle: 'brazier', color: '#5f8f4a', gold: 220, items: { amber: 1 } },
+  starmarsh: { name: '湿地尽头的宝箱', puzzle: 'far', color: '#4a7aa8', gold: 300, items: { fossil: 1 } },
+  northcrag: { name: '山坡背后的宝箱', puzzle: 'far', color: '#8a8278', gold: 420, items: { starShard: 1 } },
+  ruins: { name: '遗迹祭坛的宝箱', puzzle: 'brazier', color: '#8a5ab8', gold: 600, items: { goldIdol: 1 } },
+};
+
+export const HIDDEN_IDS: HiddenId[] = [...TOWN_HIDDEN_IDS, ...(Object.keys(WILD_HIDDEN) as WildRegion[])];
+export const hiddenName = (id: HiddenId): string => (id in HIDDEN_CHESTS ? HIDDEN_CHESTS[id as TownHiddenId].name : WILD_HIDDEN[id as WildRegion].name);
 
 /**
  * 石圈：一圈树围着宝箱，唯一的口子被一块大石头堵着。
@@ -104,12 +133,17 @@ export const WILD_LEASH = 14;
 /** 晚上从几点开始 */
 export const NIGHT_FROM = 19 * 60;
 
+/** 野外区域的游荡怪物：种类和强度看区域，晚上更多、更强一点，还会多出蝙蝠 */
+export const REGION_WILD = { cap: { day: 5, night: 8 }, nightTier: 1, nightBats: 2 };
+
 /* ---------- 随机事件 ---------- */
 
 export type EventKind = 'merchant' | 'traveler' | 'camp';
 
 export const EVENT_CHANCE = 0.7;
 export const EVENT_WEIGHTS: Record<EventKind, number> = { merchant: 35, traveler: 30, camp: 35 };
+/** 事件出在萤石镇的权重；每个能去的野外区域各占 1 */
+export const EVENT_TOWN_WEIGHT = 1.5;
 
 export const EVENT_SPOTS: Record<EventKind, { at: Cell; where: string }[]> = {
   merchant: [
@@ -128,18 +162,22 @@ export const EVENT_SPOTS: Record<EventKind, { at: Cell; where: string }[]> = {
   ],
 };
 
-/** 流浪商人卖的东西：price 是金币，once 表示每次来只卖一件 */
-export const MERCHANT_STOCK: { id: ItemId | 'accessory'; price: number; once?: boolean }[] = [
+/** 流浪商人卖的东西：price 是金币，once 表示每次来只卖一件。gear 是他这次带来的一件装备 */
+export const MERCHANT_STOCK: { id: ItemId | 'gear'; price: number; once?: boolean }[] = [
   { id: 'treasureMap', price: 400, once: true },
   { id: 'bigPotion', price: 120 },
   { id: 'tonic', price: 60 },
-  { id: 'accessory', price: 650, once: true },
+  { id: 'gear', price: 0, once: true },
 ];
+/** 商人的装备：按品质定价，阶级越高越贵 */
+export const GEAR_PRICE = [200, 450, 900, 1800, 3600];
+export const gearPrice = (g: Pick<NewGear, 'q' | 'tier'>): number => Math.round(GEAR_PRICE[g.q] * (1 + g.tier * 0.5));
 
 /** 受伤的旅人：送他一样能回血的东西，他会回礼 */
 export const TRAVELER_GOLD: [number, number] = [120, 200];
 export const TRAVELER_GIFTS: ItemId[] = ['oldCoin', 'amber', 'fossil'];
 export const TRAVELER_MAP_CHANCE = 0.4;
+export const TRAVELER_GEAR_CHANCE = 0.35;
 
 /** 精英营地：几只小怪围着一只精英，全部打倒后营火边的宝箱就能打开 */
 export const CAMP = {
@@ -179,26 +217,39 @@ export const BOOK_REWARDS: Record<BookPage, { half: { gold: number; items: Parti
 
 export interface ExploreEvent {
   kind: EventKind;
-  /** EVENT_SPOTS 里的下标 */
+  /** 出在哪个区域，老存档没有这一项就是萤石镇 */
+  region?: RegionId;
+  /** 这个区域事件位置列表里的下标 */
   spot: number;
   /** 0 进行中，1 营地已经打完、宝箱还没开，2 结束了 */
   stage: number;
   /** 商人这次已经卖掉的限购商品 */
   sold: string[];
+  /** 商人这次带来的装备 */
+  wares?: NewGear;
+}
+
+/** 藏宝图指向的地方 */
+export interface MapTarget {
+  region: RegionId;
+  at: Cell;
+  hint: string;
 }
 
 /** 户外探险的存档，挂在 SaveData.explore 上 */
 export interface ExploreState {
   /** 上次刷新挖宝点和事件是哪一天 */
   day: number;
-  /** 今天还没挖的闪光点，键为 "x,y" */
+  /** 今天还没挖的闪光点，键和采集物一样：小镇是 "x,y"，野外是 "区域id:x,y" */
   digs: string[];
-  /** 当前藏宝图指向 MAP_SPOTS 的哪一个，-1 表示没有 */
+  /** 老存档里藏宝图指向 MAP_SPOTS 的哪一个，-1 表示没有；读档时会换成 map */
   mapSpot: number;
+  /** 当前藏宝图指向的地方 */
+  map: MapTarget | null;
   /** 已经打开过的隐藏宝箱 */
   opened: HiddenId[];
-  /** 今天点亮的火盆（BRAZIERS 的下标） */
-  lit: number[];
+  /** 今天点亮的火盆，键为 "宝箱编号:第几个"（老存档里是小镇 BRAZIERS 的下标） */
+  lit: (string | number)[];
   event: ExploreEvent | null;
   /** 收集册：找到过的宝物、采到过的采集物 */
   found: ItemId[];
@@ -213,6 +264,7 @@ export const newExplore = (): ExploreState => ({
   day: 0,
   digs: [],
   mapSpot: -1,
+  map: null,
   opened: [],
   lit: [],
   event: null,
