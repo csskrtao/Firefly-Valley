@@ -219,7 +219,7 @@ class Panel {
 
   update(input: Input): void {
     if (!this.open) return;
-    if (input.pressed('pause') || input.pressed('inventory')) {
+    if (input.pressed('pause') || input.pressed('inventory') || input.pressed('map')) {
       audio.sfx('blip');
       this.close();
       return;

@@ -9,6 +9,7 @@ import type { NpcId } from '../data/npcs';
 import { NPC_IDS } from '../data/npcs';
 import type { WeaponTypeId } from '../data/weapons';
 import { WEAPON_TYPES, defaultType } from '../data/weapons';
+import type { RegionId } from '../world/regions/defs';
 
 export const SAVE_VERSION = 3;
 
@@ -61,7 +62,7 @@ export interface SaveData {
   accessories: ItemId[];
   level: number;
   xp: number;
-  /** 地上的采集物，键为 "x,y" */
+  /** 地上的采集物，小镇的键为 "x,y"，野外区域的键为 "区域id:x,y" */
   forage: Record<string, ItemId>;
   forageDay: number;
   buff: FoodBuff | null;
@@ -75,6 +76,10 @@ export interface SaveData {
   tip: number;
   playTime: number;
   savedAt: number;
+  /** 去过的地面区域：世界地图上会亮起来，可以快速旅行过去 */
+  regions: RegionId[];
+  /** 野外区域的 Boss 上一次被打倒是第几天，当天不会再出现；没有记录表示还没打倒过 */
+  regionBosses: Partial<Record<RegionId, number>>;
 }
 
 export function newSave(slot: number, cls: ClassId): SaveData {
@@ -113,6 +118,8 @@ export function newSave(slot: number, cls: ClassId): SaveData {
     tip: 0,
     playTime: 0,
     savedAt: Date.now(),
+    regions: ['town'],
+    regionBosses: {},
   };
 }
 

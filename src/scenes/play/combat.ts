@@ -8,12 +8,14 @@ import { BOSSES, MONSTERS } from '../../data/monsters';
 import { SKILLS } from '../../data/skills';
 import type { Enemy } from '../../entities/Enemy';
 import { Monster } from '../../entities/Monster';
+import { RegionBoss } from '../../entities/RegionBoss';
 import { monsterSprites } from '../../gfx/sprites';
 import { addItem, owns } from '../../state/save';
 import { gainXp, monsterXp } from '../../systems/level';
 import * as quests from '../../systems/quests';
 import { accSum, attack as atkStat, critChance, damageTaken, defense, lightRadiusMul, maxHp, weaponTypeOf } from '../../systems/stats';
 import { Tile } from '../../world/TileMap';
+import { defeatRegionBoss } from './regions';
 import type { PlayScene } from '../PlayScene';
 
 export type ShotKind = 'bolt' | 'shard' | 'dart' | 'orb' | 'fire' | 'knife';
@@ -404,7 +406,7 @@ export function hitEnemy(sc: PlayScene, e: Enemy, mult: number, kx: number, ky: 
   if (e.hp <= 0) killEnemy(sc, e);
 }
 
-function giveItems(sc: PlayScene, items: Partial<Record<ItemId, number>>, x: number, y: number): void {
+export function giveItems(sc: PlayScene, items: Partial<Record<ItemId, number>>, x: number, y: number): void {
   let dy = 0;
   for (const [id, n] of Object.entries(items) as [ItemId, number][]) {
     addItem(sc.s, id, n);
@@ -437,6 +439,7 @@ function killEnemy(sc: PlayScene, e: Enemy): void {
   if (!sc.enemies.includes(e)) return;
   sc.enemies.splice(sc.enemies.indexOf(e), 1);
   sc.sfx('kill');
+  if (e instanceof RegionBoss) return defeatRegionBoss(sc, e);
   if (e instanceof Monster) {
     const mid = e.mid;
     const d = e.def;
@@ -449,7 +452,7 @@ function killEnemy(sc: PlayScene, e: Enemy): void {
     giveItems(sc, drops, e.x, e.y);
     s.kills[mid] = (s.kills[mid] ?? 0) + 1;
     quests.onKill(s, mid);
-    grantXp(sc, monsterXp(MONSTERS[mid].hp, sc.floor), e.x, e.y);
+    grantXp(sc, monsterXp(MONSTERS[mid].hp, sc.danger), e.x, e.y);
     return;
   }
   if (!e.boss) return;
